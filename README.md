@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/nokiruy/Noki-NTE-Auto/main/icon1.ico" alt="NokiHbrAuto Icon" width="256">
   
-# NokiHbrAuto
+# Noki-NTE-Auto
 
 此工具基于oepncv图像识别与模拟器ADB控制以及后台键鼠，点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
 
