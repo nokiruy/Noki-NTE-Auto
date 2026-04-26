@@ -67,16 +67,38 @@ def close_app(adb_config, package_name):
     subprocess.run(adb_command, shell=True)
 
 
-def get_all_device_ports(adb_path):
+def _is_emulator_port(port):
+    """Check if a port/serial belongs to an emulator"""
+    port_str = str(port).lower()
+    return (
+        'emulator' in port_str
+        or '127.0.0.1' in port_str
+        or 'localhost' in port_str
+        or port_str.startswith('192.168.')
+    )
+
+
+def get_all_device_ports(adb_path, target_mode='all'):
     """
-    Get list of all connected ADB device ports/serial numbers
+    Get list of connected ADB device ports/serial numbers
 
     Args:
         adb_path: Path to adb executable
+        target_mode: Filter mode for returned devices.
+            - 'all': Return all connected devices (legacy behavior).
+            - 'emulator': Return only emulator devices (e.g. MuMu, LDPlayer, etc.).
+            - 'device': Return only physical Android devices.
+            - 'pc': Return empty list; used when running in PC window mode
+                    so that the script does not occupy any ADB connections.
 
     Returns:
         list: Device port/serial numbers in format like ["emulator-5554", "127.0.0.1:16384"]
     """
+    # When running in PC window mode, skip ADB entirely to avoid
+    # occupying ADB connections used by other scripts (e.g. ALAS).
+    if target_mode == 'pc':
+        return []
+
     try:
         # Execute adb devices command
         adb_command = f'"{adb_path}" devices'
@@ -97,6 +119,12 @@ def get_all_device_ports(adb_path):
             parts = line.strip().split('\t')
             if len(parts) >= 2 and parts[1] == 'device':
                 device_list.append(parts[0])
+
+        # Filter by target mode
+        if target_mode == 'emulator':
+            device_list = [d for d in device_list if _is_emulator_port(d)]
+        elif target_mode == 'device':
+            device_list = [d for d in device_list if not _is_emulator_port(d)]
 
         return device_list
 
