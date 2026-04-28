@@ -39,7 +39,6 @@
 ## 下载与使用教程
 1. **下载可执行文件**  
    - 前往 [Releases页面](https://github.com/nokiruy/Noki-NTE-Auto/releases)
-   - 或者 [百度网盘](https://pan.baidu.com/s/1k02bSxDGAkqbqt4com68Ng?pwd=saki) 提取码: saki
    - 作者b站主页的关于脚本的视频的分P中有教程，也可在用户交流群内向我求助
 
 
@@ -49,6 +48,5 @@
 
 
 
-## 交流与反馈
-- 交流、下载、求助群：725913419
+
 
