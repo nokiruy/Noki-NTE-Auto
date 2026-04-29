@@ -41,7 +41,7 @@
 ## 下载与使用教程
 1. **下载可执行文件**  
    - 前往 [Releases页面](https://github.com/nokiruy/Noki-NTE-Auto/releases)
-   - 作者b站主页的关于脚本的[演示视频](https://www.bilibili.com/video/BV1dbogBaE8x)的分P中有教程，也可在用户交流群内向我求助
+   - 作者b站主页的关于脚本的[演示视频](https://www.bilibili.com/video/BV1dbogBaE8x)的分P中有教程，也可在用户交流群内或者b站向我求助，github不更新工具不会看
 
 
 本项目基于以下技术实现：
