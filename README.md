@@ -3,7 +3,7 @@
   
 # Noki-NTE-Auto
 
-此工具基于oepncv图像识别与模拟器ADB控制以及后台键鼠，点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
+此工具基于oepncv图像识别与模拟器ADB控制以及后台键鼠，实现的源码模块都在仓库，获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
 
 
 </div>
