@@ -1,17 +1,19 @@
+import sys
 
 from opencv识图 import 函数_在指定区域内进行模板匹配,函数_在指定区域内进行模板匹配返回横坐标范围
-
 import time
-import logging
 from pathlib import Path
-logger = logging.getLogger("database")
 from 后台键盘鼠标 import  simulate_key_down, simulate_key_up, simulate_key_press_hold
 from 后台截图 import 函数截图到内存
 
 def 异环钓鱼(配置, 线程事件,):
-    判断区域路径=Path("判定区域.png")
-    滑块路径=Path("滑块.png")
-    钓鱼成功判定图片=Path("钓鱼成功判定图片.png")
+    if getattr(sys, 'frozen', False):
+        current_dir = Path(sys.executable).parent.absolute()
+    else:
+        current_dir = Path(__file__).parent.absolute()
+    判断区域路径=current_dir/"判定区域.png"
+    滑块路径=current_dir/"滑块.png"
+    钓鱼成功判定图片=current_dir/"钓鱼成功判定图片.png"
     判断频率=0.005
     按键元组 = (0x41, 0x44, 0x46, 0x1B)
     _, _, hwnd, 窗口矩形, _ = 配置
