@@ -47,7 +47,6 @@
 
 本项目基于以下技术实现：
 - [OpenCV](https://opencv.org/) 图像识别引擎
-- [ADB](https://developer.android.com/tools/adb) 设备控制协议
 
 
 
