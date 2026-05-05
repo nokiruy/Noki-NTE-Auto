@@ -3,7 +3,9 @@
   
 # Noki-NTE-Auto
 
-此工具基于oepncv图像识别与模拟器ADB控制以及后台键鼠，实现的源码模块都在仓库，获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
+使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
+When using this tool, please change the UI language of the game NTE to Simplified Chinese.
+此工具基于oepncv图像识别与控制以及后台键鼠，实现的源码模块都在仓库，获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
 
 
 </div>
