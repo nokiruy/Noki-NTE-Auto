@@ -1,0 +1,12 @@
+{
+  "压缩方式": "最大覆盖中心八度直接裁剪",
+  "key加减": 0,
+  "生成json": false,
+  "异环钢琴演奏速度变量": 1.2,
+  "垂直反转映射变量": 0,
+  "水平反转映射变量": 0,
+  "filepath": "E:\\pyxiangmu\\hbr3\\外置配置文件夹\\midi\\【Ave mujica】Imprisoned XII（Piano）.mid",
+  "演奏轨道": [
+    1
+  ]
+}
