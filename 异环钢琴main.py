@@ -1498,6 +1498,7 @@ if __name__ == "__main__":
         ttk.Button(控制区, text="▶ 开始演奏", command=启动演奏).pack(side=tk.LEFT, padx=5)
         ttk.Button(控制区, text="■ 停止演奏", command=函数停止任务).pack(side=tk.LEFT, padx=5)
         ttk.Button(控制区, text="打开演奏文件夹", command=lambda: os.startfile(current_dir / "外置配置文件夹")).pack(side=tk.LEFT, padx=5)
+        ttk.Button(控制区, text="打开说明书", command=lambda: os.startfile(current_dir /"异环钢琴自动演奏工具使用说明书.txt")).pack(side=tk.LEFT, padx=5)
 
         # ---------- 内部函数 ----------
 
