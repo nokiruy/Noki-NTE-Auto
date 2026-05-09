@@ -5,7 +5,7 @@
 
 使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
 When using this tool, please change the UI language of the game NTE to Simplified Chinese.
-此工具基于oepncv图像识别与以及后台键鼠，获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)，实现的源码模块都在仓库，这是我第一次写游戏脚本获得这么多关注，我编程这方面零基础，学python也不过就看了几节网课就开始指导ai了，写的实在是不堪入目，代码中有大量if套嵌和写一个东西压根没有想过代码复用导致代码很长，等我整理好代码会完整开源的，我要上班也没有那么多时间，请多包涵，
+此工具基于oepncv图像识别与以及后台键鼠，获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
 
 
 </div>
