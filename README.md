@@ -45,7 +45,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
 ## 下载与使用教程
 1. **下载可执行文件**  
    - 前往 [Releases页面](https://github.com/nokiruy/Noki-NTE-Auto/releases)
-   - 作者b站主页的关于脚本的[演示视频](https://www.bilibili.com/video/BV1dbogBaE8x)的分P中有教程，也可在用户交流群内或者b站向我求助，github不更新工具不会看
+   - 作者b站主页的关于脚本的[演示视频](https://www.bilibili.com/video/BV1dbogBaE8x)的分P中有教程，也可在用户交流群内或者b站向我求助
 
 
 
