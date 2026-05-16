@@ -3,9 +3,9 @@
   
 # Noki-NTE-Auto
 
-使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
+代码完全开源，我是零编程基础看了几节网课用AI辅助写的这些代(乱)码，使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
 When using this tool, please change the UI language of the game NTE to Simplified Chinese.
-此工具基于oepncv图像识别与以及后台键鼠，获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
+获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
 
 
 </div>
