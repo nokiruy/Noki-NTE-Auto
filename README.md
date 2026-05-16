@@ -3,7 +3,9 @@
   
 # Noki-NTE-Auto
 
-代码完全开源，我是零编程基础看了几节网课用AI辅助写的这些代(乱)码，使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
+代码已完全开源，我是零编程基础，看了几节python教程视频后，用AI辅助写的这些代(乱)码，
+总之整体写的非常混乱，变量和函数名绝大多数用的中文，github我也用不懂，但应该是这样上传代码和构建项目的
+使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
 When using this tool, please change the UI language of the game NTE to Simplified Chinese.
 获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
 
