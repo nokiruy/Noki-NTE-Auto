@@ -237,7 +237,7 @@ def 弹出提示图片():
         current_dir = Path(sys.executable).parent.absolute()
     else:
         current_dir = Path(__file__).parent.absolute()
-    ds_path = current_dir / 'ds.json'
+    ds_path = current_dir / 'game.json'
     # 若不存在，则向上回溯三级目录
     if not ds_path.exists():
         current_dir = current_dir.parent.parent.parent  # 三级回溯
