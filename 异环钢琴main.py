@@ -1029,7 +1029,7 @@ def 多线程演奏_直接从内存(游戏句柄, 音轨按键操作字典, 线�
     for 按键 in 录屏开始按键列表:
         pydirectinput.keyUp(按键)
         time.sleep(0.1)"""
-    threading.Thread(target=线程持续激活, args=(游戏句柄, 线程事件, False)).start()
+
     time.sleep(1)
 
     if not 音轨按键操作字典:
@@ -1080,7 +1080,7 @@ def 多线程演奏(游戏句柄, json文件路径列表,线程事件,演奏速�
         pydirectinput.keyUp(按键)
         time.sleep(0.1)"""
 
-    threading.Thread(target=线程持续激活, args=(游戏句柄, 线程事件, False)).start()
+
     time.sleep(1)
 
     """
@@ -1179,7 +1179,7 @@ def 演奏36个音(游戏句柄, 开始时间偏移=0.0, 音符间隔=0.5, 音�
 if __name__ == "__main__":
     import win32gui
     import ctypes
-    import sys
+
     from tkinter import ttk
     from tkinter import messagebox
     import tkinter as tk
@@ -1188,6 +1188,9 @@ if __name__ == "__main__":
     def 函数停止任务():
         print("发送停止信号")
         线程事件.clear()
+
+
+    import sys
     if getattr(sys, 'frozen', False):
         current_dir = Path(sys.executable).parent.absolute()
     else:
