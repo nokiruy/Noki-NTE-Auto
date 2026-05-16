@@ -4,7 +4,7 @@
 # Noki-NTE-Auto
 
 代码已完全开源，我是零编程基础，看了几节python教程视频后，用AI辅助写的这些代(乱)码，
-总之整体写的非常混乱，变量和函数名绝大多数用的中文，github我也用不懂，但应该是这样上传代码和构建项目的
+整体写的非常混乱(其实2026.5.17的前一个星期的mian.py中还是一万行的乱成一锅粥的混乱代码)，变量和函数名绝大多数用的中文，github我也用不懂，但应该是这样上传代码和构建项目的，
 使用該工具時，請將遊戲NTE的UI語言更換為簡體中文
 When using this tool, please change the UI language of the game NTE to Simplified Chinese.
 获取工具点击这里[下载](https://github.com/nokiruy/Noki-NTE-Auto/releases)
@@ -33,7 +33,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
   - 自动钢琴(预设若干曲目，有各种压缩方式以及升降key等等)
   - 自动战斗(速切，清日常用)
   - 自动超强音(音游，可以做到全S评级)
-  - 剧情跳过(暂未完善)
+  - 剧情跳过
   - 店长特供(暂未完善，暂时只能锤人，这个不能完全后台，都市体力推荐钓鱼)
 
 
