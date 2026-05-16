@@ -271,10 +271,10 @@ def 中途连接模拟器():
         if target_path.exists() and target_path.is_dir():  # 判断文件是否存在
             if 游戏 == "异环":
                 return
-    ds_path = current_dir / 'ds.json'
+    ds_path = current_dir / 'game.json'
     if not ds_path.exists():
         current_dir = current_dir.parent.parent.parent  # 三级回溯
-        ds_path = current_dir / 'ds.json'
+        ds_path = current_dir / 'game.json'
     app_path = current_dir / "platform-tools" / "adb.exe"
     with open(os.path.join(current_dir, 'Tool_Settings.json'), 'r', encoding='utf-8') as file:
         Tool_Settings = json.load(file)
