@@ -1522,7 +1522,7 @@ def 函数主程序():
     if 幻塔脚本运行:
         current_version ="0.0.1"
     if 异环脚本运行:
-        current_version = "1.4.42"
+        current_version = "1.5.43"
     title = f"NHAuto-v{current_version} bilibili@NOKIRUY"
     window.title(title)
 
@@ -3331,6 +3331,7 @@ def 函数主程序():
                 异环店长特供窗口创建()
                 异环超强音窗口创建()
                 任务1选择变量=None
+                任务2选择变量 = None
                 创建按钮2grid(选项卡任务列表容器1_2, "异环钢琴", lambda: 执行器.提交任务(显示任务窗口, "异环钢琴", 异步=False),
                               字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=小功能位置列表[5], 位置2=1)
                 创建按钮2grid(选项卡任务列表容器1_2, "异环钓鱼", lambda: 执行器.提交任务(显示任务窗口,"异环钓鱼", 异步=False),
@@ -3340,14 +3341,22 @@ def 函数主程序():
                 创建按钮2grid(选项卡任务列表容器1_2, "超强音", lambda: 执行器.提交任务(显示任务窗口,"异环超强音", 异步=False),
                               字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=7, 位置2=1)
 
-                def auto_battle_task(设置任务名):
+                def auto_battle_task(设置任务名,设置任务编号=1):
                     try:
-                        任务1选择变量.set(设置任务名)
+                        if 设置任务编号==1:
+                            任务1选择变量.set(设置任务名)
+                        elif 设置任务编号==2:
+                            任务2选择变量.set(设置任务名)
+                        else:
+                            任务1选择变量.set(设置任务名)
                         执行器.提交任务(显示任务窗口, "异环其他任务", 异步=False)
                     except Exception as e:
                         print(e)
 
-                #创建按钮2grid(选项卡任务列表容器1_2, "自动战斗", lambda :auto_battle_task("自动战斗"), 字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=8, 位置2=1)
+                创建按钮2grid(选项卡任务列表容器1_2, "自动战斗", lambda :auto_battle_task("自动战斗"),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=10, 位置2=1)
+                创建按钮2grid(选项卡任务列表容器1_2, "自动闪避弹刀", lambda: auto_battle_task("自动闪避弹刀",2),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=1)
 
 
                 创建按钮2grid(选项卡任务列表容器1_2, "自动按F", lambda :auto_battle_task("自动按F"),
@@ -3355,6 +3364,8 @@ def 函数主程序():
 
                 创建按钮2grid(选项卡任务列表容器1_2, "更多任务", lambda: 执行器.提交任务(显示任务窗口,"异环其他任务", 异步=False),
                               字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=2)
+
+
                 def 手动检查更新():
                     网页网址 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
                     if 异环脚本运行:
@@ -3366,7 +3377,7 @@ def 函数主程序():
                     if 文本 != False:
                         版本更新提示窗口(文本, 标题="版本更新提示")
                 创建按钮2grid(选项卡任务列表容器1_2, "检查更新", lambda: 执行器.提交任务(手动检查更新,  异步=True),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=4, 位置2=2)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=2)
 
                 选项卡任务列表容器1_2 = ttk.Frame(选项卡任务列表容器1)
                 选项卡任务列表容器1_2.grid(row=7, column=0, padx=0, pady=0)
@@ -3492,6 +3503,7 @@ def 函数主程序():
                 任务2选择变量 = tk.StringVar(value="自动跳过剧情")
                 任务3选择变量 = tk.StringVar(value="自动按F")
                 任务4选择变量 = tk.StringVar(value="鼠标快速打开esc界面")
+
                 识图间隔变量 = tk.DoubleVar(value=0.1)
                 变轨技能自定义按键 = tk.StringVar(value="E")
                 极轨终结自定义按键 = tk.StringVar(value="Q")
@@ -3551,7 +3563,15 @@ def 函数主程序():
                         选择变量 = 任务4选择变量
 
                     子容器 = ttk.LabelFrame(父容器,text=f"任务{任务编号}")
-                    子容器.grid(row=行, column=列, pady=10, padx=(0,10),sticky="w")
+                    if 任务编号 in [1,3]:
+                        子容器padx=(0,100)
+                    else:
+                        子容器padx = 0
+                    if 任务编号 in [1,2]:
+                        子容器pady=(0,100)
+                    else:
+                        子容器pady = 0
+                    子容器.grid(row=行, column=列, pady=子容器pady, padx=子容器padx,sticky="w")
                     文本容器 = ttk.Frame(子容器)
                     文本容器.grid(row=0, column=0, pady=10, sticky="w")
                     容器 = ttk.Frame(文本容器)
@@ -3559,7 +3579,7 @@ def 函数主程序():
 
                     tk.Label(容器, text=f"任务{任务编号}选择:", font=("微软雅黑", 16)).grid(row=0, column=0, sticky=tk.W)
 
-                    固定任务列表 = ["自动战斗", "自动跳过剧情", "自动按F", "鼠标快速打开esc界面"]
+                    固定任务列表 = ["自动战斗", "自动跳过剧情", "自动按F", "鼠标快速打开esc界面","自动闪避弹刀"]
                     下拉框 = ttk.Combobox(容器, textvariable=选择变量, font=("微软雅黑", 16), width=20)
                     下拉框.grid(row=0, column=1)
 
@@ -3616,7 +3636,20 @@ def 函数主程序():
                             tk.Entry(动态配置容器, textvariable=极轨终结自定义按键, width=10).grid(row=1, column=1, padx=5, pady=5, sticky="w")
                             ttk.Label(动态配置容器, text="弧盘技能按键：").grid(row=2, column=0, padx=5, pady=5, sticky="e")
                             tk.Entry(动态配置容器, textvariable=弧盘技能自定义按键, width=10).grid(row=2, column=1, padx=5, pady=5, sticky="w")
+                        elif 当前选择 == "自动闪避弹刀":
 
+                            ttk.Label(动态配置容器, text="(提醒：通过音频波形判定，电脑和游戏不能静音，\n最好也不要播放除了异环游戏外的其他声音)",
+                                      font=("微软雅黑", 14), foreground="gray").grid(row=0, column=0,  sticky="w", padx=5)
+                            """     自动闪避弹刀容器 = ttk.Frame(动态配置容器)
+                            自动闪避弹刀容器.grid(row=1, column=0, pady=5, sticky="w")
+                            ttk.Label(自动闪避弹刀容器, text="带通能量占比：", font=("微软雅黑", 16)).grid(row=0, column=0, padx=5, sticky="w")
+                            tk.Spinbox(自动闪避弹刀容器, from_=0.001, to=5.0, increment=0.05,
+                                       textvariable=识图间隔变量, font=("微软雅黑", 16),
+                                       relief="solid", width=5).grid(row=0, column=1, padx=5)
+                            ttk.Label(自动闪避弹刀容器, text="高通截止频率：", font=("微软雅黑", 16)).grid(row=1, column=0, padx=5, sticky="w")
+                            tk.Spinbox(自动闪避弹刀容器, from_=0.001, to=5.0, increment=0.05,
+                                       textvariable=识图间隔变量, font=("微软雅黑", 16),
+                                       relief="solid", width=5).grid(row=1, column=1, padx=5)"""
                         elif 当前选择 == "鼠标快速打开esc界面":
                             ttk.Label(动态配置容器, text="(提醒：如果用键盘触发，键盘Alt按下后，再按下V/T，\n短暂等待esc界面明显打开后再弹起两个按键)",
                                       font=("微软雅黑", 14), foreground="gray").grid(row=0, column=2, columnspan=2, sticky="w", padx=5)
@@ -3764,7 +3797,7 @@ def 函数主程序():
 
                     def update_status(running):
                         """主线程安全更新状态标签"""
-                        text = "运行中" if running else "未运行"
+                        text = f"{选择变量.get()}任务运行中" if running else "未运行"
                         color = "green" if running else "red"
                         # 假设 root 是全局主窗口变量，请根据实际变量名调整
                         window.after(0, lambda: 状态标签.config(text=text, fg=color))
@@ -3811,6 +3844,15 @@ def 函数主程序():
                             elif 当前任务 == "自动战斗":
                                 threading.Thread(target=速切宏战斗线程, args=(事件循环, 事件停止, adb路径)).start()
                                 threading.Thread(target=速切宏战斗线程2, args=(事件循环, 事件停止, adb路径, 变轨技能自定义按键.get(), 极轨终结自定义按键.get(), 弧盘技能自定义按键.get())).start()
+                            elif 当前任务 == "自动闪避弹刀":
+                                游戏静音=False
+                                from 音频闪避反击 import 根据音频闪避反击任务
+                                selected = 异环工具优先级变量.get()
+                                if selected=="高于正常" or selected=="实时（最高，慎用）":
+                                    pass
+                                else:
+                                    异环工具优先级变量.set("高于正常")
+                                threading.Thread(target=根据音频闪避反击任务, args=(current_dir,异环句柄,事件循环, 事件停止)).start()
                             elif 当前任务 == "鼠标快速打开esc界面":
                                 threading.Thread(target=鼠标快速打开esc界面, args=(adb路径, 事件循环, 事件停止)).start()
                             elif "[txt]" in 当前任务:
@@ -3835,6 +3877,15 @@ def 函数主程序():
                                 threading.Thread(target=执行脚本).start()
                             threading.Thread(target=线程持续激活, args=(异环句柄, 事件循环, 游戏静音)).start()
                             函数保存其他任务设置()
+                            def 标签变化():
+                                while True:
+                                    time.sleep(0.5)
+                                    if not 事件停止.is_set():
+                                        break
+                                update_status(False)
+
+                            threading.Thread(target=标签变化, args=()).start()
+
 
 
                     return 任务启动
