@@ -2,7 +2,6 @@ print("开始初始化脚本UI界面等")
 print("如果卡住请尝试按回车键(Enter),或者管理员身份重启脚本")
 for _ in range(6):
     print("工具免费，禁止通过任何方式收费，如果付费请要求商家退款，并帮忙举报倒卖")
-
 import tkinter as tk
 import tempfile
 
