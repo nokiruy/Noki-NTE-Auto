@@ -17,7 +17,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows-blueviolet">
   <br>
   <img alt="license" src="https://img.shields.io/github/license/nokiruy/Noki-NTE-Auto">
-  <img alt="release" src="https://img.shields.io/github/v/release/nokiruy/Noki-NTE-Autoo">
+  <img alt="release" src="https://img.shields.io/github/v/release/nokiruy/Noki-NTE-Auto">
 </p>
 
 <div align="center">
