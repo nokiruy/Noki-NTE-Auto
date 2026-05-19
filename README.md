@@ -41,7 +41,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
 - **辅助功能**
   - 定时启动(暂未和任何功能有联动)
   - 自动按F
-  - 钓鱼结束后电脑关机
+  - 钓鱼结束后电脑关机或者关闭游戏，自动截图上钩鱼
   - 鼠标快速打开esc界面
   - 自动跳过剧情
   - 启动或结束后打开文件，应用或者网站（网页活动）
