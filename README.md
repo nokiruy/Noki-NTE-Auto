@@ -28,7 +28,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
 
 ## 功能列表
 
-- **主要功能(游戏刚公测，只做了这些)**
+- **主要功能(后续还会更新)**
   - 钓鱼(光标稳定跟随判断区域，堪比以前的bug时停钓鱼法)
   - 钢琴(预设若干曲目，有各种压缩方式以及升降key等等)
   - 战斗(速切，清日常用)
@@ -36,6 +36,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
   - 超强音(音游，可以做到全S评级)
   - 在txt文件中用中文编写自定义简单脚本
   - 店长特供
+  - 呗果点赞收藏，评论求互赞，以及水贴
  
 
 
@@ -49,6 +50,8 @@ When using this tool, please change the UI language of the game NTE to Simplifie
   - 启动或结束后弹窗提醒自定义的文本(如提醒你签到小助手)
   - 赛车挂机重开
   - 达芙蒂尔冲刺宏
+  - 切人闪避冲刺
+  - 各种宏等等
   
 
 
