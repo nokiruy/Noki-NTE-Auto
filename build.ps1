@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$Clean,
     [switch]$SkipInstall,
@@ -8,6 +8,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+$Utf8Encoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $Utf8Encoding
+[Console]::OutputEncoding = $Utf8Encoding
+$OutputEncoding = $Utf8Encoding
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"
+& chcp.com 65001 | Out-Null
 
 $Root = [IO.Path]::GetFullPath($PSScriptRoot)
 $SourceRoot = Join-Path $Root "src"
