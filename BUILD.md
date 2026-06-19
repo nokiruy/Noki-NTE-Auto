@@ -62,7 +62,7 @@ release/
    ├─ Noki_NTE_Auto.exe
    ├─ UI/
    ├─ 异环图片/
-   └─ *.json / app_path.txt / 使用说明书
+   └─ *.json / app_path.txt / 使用说明书.md
 ```
 
 正常发布时应打包整个 `release` 目录，不能只复制单独的 EXE。

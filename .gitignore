@@ -36,6 +36,7 @@ release/
 *.bak
 *.swp
 ~$*
+*.tags
 
 # IDE settings
 .idea/

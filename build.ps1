@@ -57,6 +57,28 @@ function Copy-ReleaseItem {
     Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
+function Get-Sha256 {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $ResolvedPath = [IO.Path]::GetFullPath($Path)
+    $Sha256 = [Security.Cryptography.SHA256]::Create()
+    $Stream = [IO.File]::OpenRead($ResolvedPath)
+    try {
+        $HashBytes = $Sha256.ComputeHash($Stream)
+        $Hash = -join ($HashBytes | ForEach-Object { $_.ToString("X2") })
+    }
+    finally {
+        $Stream.Dispose()
+        $Sha256.Dispose()
+    }
+
+    [PSCustomObject]@{
+        Algorithm = "SHA256"
+        Hash = $Hash
+        Path = $ResolvedPath
+    }
+}
+
 if ($Clean) {
     Remove-WorkspaceDirectory $BuildRoot
     Remove-WorkspaceDirectory $ReleaseRoot
@@ -171,7 +193,7 @@ $RootFiles = @(
     "update_check.json",
     "variable.json",
     "web_and_app.json",
-    "异环钢琴自动演奏工具使用说明书.txt"
+    "异环钢琴自动演奏工具使用说明书.md"
 )
 foreach ($File in $RootFiles) {
     Copy-ReleaseItem (Join-Path $Root $File) (Join-Path $DistRoot $File)
@@ -197,11 +219,10 @@ foreach ($Output in $RequiredOutputs) {
     }
 }
 
-$Hashes = Get-FileHash `
-    (Join-Path $DistRoot "Noki_NTE_Auto.exe"), `
-    (Join-Path $ReleaseRoot "Noki_NTE_Auto_Launcher.exe") `
-    -Algorithm SHA256 `
-    -ErrorAction SilentlyContinue
+$Hashes = @(
+    Get-Sha256 (Join-Path $DistRoot "Noki_NTE_Auto.exe")
+    Get-Sha256 (Join-Path $ReleaseRoot "Noki_NTE_Auto_Launcher.exe")
+)
 $Hashes | Format-Table -AutoSize
 
 Write-Host ""

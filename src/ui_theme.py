@@ -11,7 +11,7 @@ from tkinter import font, ttk
 
 
 COLORS = {
-    "background": "#F3F6FA",
+    "background": "#EEF2F7",
     "surface": "#FFFFFF",
     "surface_alt": "#EAF0F7",
     "surface_hover": "#E2EAF4",
@@ -29,6 +29,12 @@ COLORS = {
     "danger": "#DC2626",
     "danger_hover": "#B91C1C",
     "danger_soft": "#FEE2E2",
+    "sidebar": "#121A2A",
+    "sidebar_hover": "#1C2940",
+    "sidebar_active": "#253858",
+    "sidebar_text": "#DDE7F5",
+    "sidebar_muted": "#7F91AA",
+    "status": "#0E1624",
 }
 
 FONT_FAMILY = "Microsoft YaHei UI"
@@ -53,8 +59,11 @@ def apply_modern_theme(root: tk.Misc, style: ttk.Style | None = None) -> ttk.Sty
 
     style.configure(".", font=(FONT_FAMILY, 10))
     style.configure("App.TFrame", background=COLORS["background"])
+    style.configure("Workspace.TFrame", background=COLORS["background"])
     style.configure("TFrame", background=COLORS["surface"])
     style.configure("Card.TFrame", background=COLORS["surface"])
+    style.configure("Sidebar.TFrame", background=COLORS["sidebar"])
+    style.configure("StatusBar.TFrame", background=COLORS["status"])
     style.configure(
         "Header.TFrame",
         background=COLORS["surface"],
@@ -83,6 +92,61 @@ def apply_modern_theme(root: tk.Misc, style: ttk.Style | None = None) -> ttk.Sty
         background=COLORS["surface"],
         foreground=COLORS["muted"],
         font=(FONT_FAMILY, 9),
+    )
+    style.configure(
+        "PageTitle.TLabel",
+        background=COLORS["background"],
+        foreground=COLORS["text"],
+        font=(FONT_FAMILY, 24, "bold"),
+    )
+    style.configure(
+        "PageSubtitle.TLabel",
+        background=COLORS["background"],
+        foreground=COLORS["muted"],
+        font=(FONT_FAMILY, 10),
+    )
+    style.configure(
+        "BrandMark.TLabel",
+        background=COLORS["accent"],
+        foreground="#FFFFFF",
+        font=(FONT_FAMILY, 16, "bold"),
+        padding=(10, 7),
+    )
+    style.configure(
+        "BrandTitle.TLabel",
+        background=COLORS["sidebar"],
+        foreground="#FFFFFF",
+        font=(FONT_FAMILY, 11, "bold"),
+    )
+    style.configure(
+        "BrandMeta.TLabel",
+        background=COLORS["sidebar"],
+        foreground=COLORS["sidebar_muted"],
+        font=(FONT_FAMILY, 8),
+    )
+    style.configure(
+        "NavSection.TLabel",
+        background=COLORS["sidebar"],
+        foreground=COLORS["sidebar_muted"],
+        font=(FONT_FAMILY, 8, "bold"),
+    )
+    style.configure(
+        "StatusText.TLabel",
+        background=COLORS["status"],
+        foreground=COLORS["sidebar_text"],
+        font=(FONT_FAMILY, 9),
+    )
+    style.configure(
+        "StatusDotIdle.TLabel",
+        background=COLORS["status"],
+        foreground="#4DD6A1",
+        font=(FONT_FAMILY, 10, "bold"),
+    )
+    style.configure(
+        "StatusDotBusy.TLabel",
+        background=COLORS["status"],
+        foreground="#FFB454",
+        font=(FONT_FAMILY, 10, "bold"),
     )
     style.configure(
         "Section.TLabel",
@@ -239,6 +303,62 @@ def apply_modern_theme(root: tk.Misc, style: ttk.Style | None = None) -> ttk.Sty
         background=[("pressed", COLORS["accent_soft"]), ("active", COLORS["accent_soft"])],
         foreground=[("active", COLORS["accent"])],
     )
+    style.configure(
+        "Nav.TButton",
+        background=COLORS["sidebar"],
+        foreground=COLORS["sidebar_text"],
+        bordercolor=COLORS["sidebar"],
+        lightcolor=COLORS["sidebar"],
+        darkcolor=COLORS["sidebar"],
+        relief="flat",
+        borderwidth=0,
+        anchor="w",
+        padding=(13, 5),
+        font=(FONT_FAMILY, 10),
+    )
+    style.map(
+        "Nav.TButton",
+        background=[("pressed", COLORS["sidebar_hover"]), ("active", COLORS["sidebar_hover"])],
+        foreground=[("active", "#FFFFFF")],
+        bordercolor=[("active", COLORS["sidebar_hover"])],
+    )
+    style.configure(
+        "NavActive.TButton",
+        background=COLORS["sidebar_active"],
+        foreground="#FFFFFF",
+        bordercolor=COLORS["sidebar_active"],
+        lightcolor=COLORS["sidebar_active"],
+        darkcolor=COLORS["sidebar_active"],
+        relief="flat",
+        borderwidth=0,
+        anchor="w",
+        padding=(13, 5),
+        font=(FONT_FAMILY, 10, "bold"),
+    )
+    style.map(
+        "NavActive.TButton",
+        background=[("active", COLORS["sidebar_active"])],
+        foreground=[("active", "#FFFFFF")],
+        bordercolor=[("active", COLORS["sidebar_active"])],
+    )
+    style.configure(
+        "Stop.TButton",
+        background="#7B2937",
+        foreground="#FFFFFF",
+        bordercolor="#7B2937",
+        lightcolor="#7B2937",
+        darkcolor="#7B2937",
+        relief="flat",
+        borderwidth=0,
+        padding=(13, 6),
+        font=(FONT_FAMILY, 9, "bold"),
+    )
+    style.map(
+        "Stop.TButton",
+        background=[("active", "#9C3445"), ("disabled", "#293343")],
+        foreground=[("disabled", "#78869A")],
+        bordercolor=[("disabled", "#293343")],
+    )
 
     style.configure(
         "TNotebook",
@@ -327,11 +447,10 @@ def _surface_for(widget: tk.Misc) -> str:
         try:
             if current.winfo_class() == "TLabelframe":
                 return COLORS["surface"]
-            if isinstance(current, ttk.Frame) and current.cget("style") in {
-                "Card.TFrame",
-                "Header.TFrame",
-            }:
-                return COLORS["surface"]
+            if isinstance(current, ttk.Frame):
+                frame_style = current.cget("style")
+                if frame_style not in {"Workspace.TFrame", "App.TFrame"}:
+                    return COLORS["surface"]
         except (tk.TclError, AttributeError):
             pass
         current = getattr(current, "master", None)

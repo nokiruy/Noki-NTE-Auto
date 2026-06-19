@@ -31,6 +31,8 @@ import io
 import shutil
 import hashlib
 from project_paths import APP_ROOT
+from task_coordinator import TaskCoordinator
+from ui_shell import WorkspaceShell
 from ui_theme import COLORS, apply_modern_theme, polish_legacy_widgets
 
 from 任务执行器 import 执行器
@@ -194,6 +196,8 @@ import 睡眠倍数模块
 线程事件自定义战斗轴循环.clear()
 线程事件停止循环 = threading.Event()
 线程事件停止循环.clear()
+任务互斥器 = TaskCoordinator()
+其他任务循环事件列表 = []
 更新UI线程事件 = threading.Event()
 更新UI线程事件.clear()
 
@@ -939,11 +943,24 @@ def 函数根据任务名启动任务线程(任务名):
                         f"运行任务结束")
     线程事件任务循环.clear()
     线程事件停止循环.clear()
-def 函数根据任务名启动任务(任务名):
+def 函数根据任务名启动任务(任务名, 互斥凭证=None):
+    if 互斥凭证 is None:
+        互斥凭证 = 任务互斥器.acquire(任务名)
+        if 互斥凭证 is None:
+            return False
+
+    def 执行并释放互斥():
+        try:
+            函数根据任务名启动任务线程(任务名)
+        finally:
+            线程事件任务循环.clear()
+            线程事件停止循环.clear()
+            任务互斥器.release(互斥凭证)
+
     线程事件任务循环.set()
     线程事件停止循环.set()
-    threading.Thread(target=函数根据任务名启动任务线程,
-                     args=(任务名,)).start()
+    threading.Thread(target=执行并释放互斥).start()
+    return True
 def 预先连接mumu模拟器启动线程():
     threading.Thread(target=预先连接mumu模拟器2,
                      args=()).start()
@@ -958,6 +975,8 @@ def 函数停止任务():
     else:
         logger.debug("没有正在运行的任务")
     线程事件任务循环.clear()
+    for 事件循环 in list(其他任务循环事件列表):
+        事件循环.clear()
 
 def 调整列表字符串长度(字符串列表):
     """
@@ -1497,18 +1516,25 @@ def 函数主程序():
         脚本启动后执行所有操作线程()
 
     def 新方式集合启动任务(任务名):
-        if 线程事件停止循环.is_set():
-            error_message = f"线程事件对象已经存在: {线程事件任务循环}"
-            错误信息 = f"当前还有任务正在运行，请关闭该弹窗后，点击任意停止按钮等待任务停止后重试，或者重新打开脚本\n  {error_message}"
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("线程错误", 错误信息)
-        else:
+        互斥凭证 = 任务互斥器.acquire(任务名)
+        if 互斥凭证 is None or 线程事件停止循环.is_set():
+            if 互斥凭证 is not None:
+                任务互斥器.release(互斥凭证)
+            当前任务 = 任务互斥器.active_name or "正在结束的任务"
+            messagebox.showwarning(
+                "任务正在运行",
+                f"“{当前任务}”仍占用自动化控制权。\n"
+                "请先停止当前任务，状态栏恢复为空闲后再启动新任务。",
+                parent=window,
+            )
+            return False
+
+        try:
             函数保存设置()
-
-            线程事件停止循环.set()
-
-            函数根据任务名启动任务(任务名)
+            return 函数根据任务名启动任务(任务名, 互斥凭证)
+        except Exception:
+            任务互斥器.release(互斥凭证)
+            raise
 
 
 
@@ -1626,8 +1652,7 @@ def 函数主程序():
 
     window.iconbitmap(app_icon_path)
     窗口管理器 = 子窗口管理器(window, 图标路径=app_icon_path)
-    style = apply_modern_theme(window)
-    style.configure("TNotebook", tabposition="wn")
+    apply_modern_theme(window)
 
     屏幕宽度 = window.winfo_screenwidth()
     屏幕高度 = window.winfo_screenheight()
@@ -1638,79 +1663,68 @@ def 函数主程序():
     window.geometry(f"{窗口宽度}x{窗口高度}+{窗口x}+{窗口y}")
     window.minsize(min(1080, 屏幕宽度 - 80), min(680, 屏幕高度 - 80))
 
-    主窗口外壳 = ttk.Frame(window, style="App.TFrame", padding=(16, 14, 16, 16))
+    主窗口外壳 = ttk.Frame(window, style="Workspace.TFrame")
     主窗口外壳.pack(fill="both", expand=True)
-
-    顶栏 = ttk.Frame(主窗口外壳, style="Header.TFrame", padding=(16, 12))
-    顶栏.pack(fill="x", pady=(0, 12))
-    顶栏.columnconfigure(1, weight=1)
-
-    try:
-        顶栏图标图像 = Image.open(app_logo_path).convert("RGBA")
-        顶栏图标图像.thumbnail((44, 44), Image.Resampling.LANCZOS)
-        顶栏图标 = ImageTk.PhotoImage(顶栏图标图像)
-        顶栏图标标签 = ttk.Label(顶栏, image=顶栏图标, style="Card.TLabel")
-        顶栏图标标签.image = 顶栏图标
-        顶栏图标标签.grid(row=0, column=0, rowspan=2, padx=(0, 12))
-    except Exception as e:
-        logger.debug(f"顶栏图标加载失败: {e}")
-
-    ttk.Label(顶栏, text="Noki NTE Auto", style="HeaderTitle.TLabel").grid(
-        row=0, column=1, sticky="sw"
+    工作区 = WorkspaceShell(
+        主窗口外壳,
+        app_name="NOKI / NTE",
+        version=f"v{current_version}",
+        stop_command=函数停止任务,
     )
-    ttk.Label(
-        顶栏,
-        text="异环自动化工具 · 任务、截图与运行设置集中管理",
-        style="HeaderSubtitle.TLabel",
-    ).grid(row=1, column=1, sticky="nw")
-    ttk.Label(顶栏, text=f"v{current_version}", style="Badge.TLabel").grid(
-        row=0, column=2, rowspan=2, padx=(8, 0)
+    工作区.add_section("工作台")
+    选项卡任务列表 = 工作区.add_page(
+        "overview", "⌂  总览", "任务总览",
+        "选择任务、查看运行状态，所有自动化任务共享同一执行通道。",
     )
-    ttk.Label(顶栏, text="免费开源", style="SuccessBadge.TLabel").grid(
-        row=0, column=3, rowspan=2, padx=(8, 0)
+    工作区.add_section("游戏任务")
+    异环钓鱼页面 = 工作区.add_page(
+        "fishing", "◉  异环钓鱼", "异环钓鱼",
+        "配置抛竿、识别与收尾行为；本页只保留钓鱼相关设置。",
     )
+    异环钢琴页面 = 工作区.add_page(
+        "piano", "♫  钢琴演奏", "钢琴演奏",
+        "选择 MIDI 或 JSON 演奏文件，调整音轨映射与演奏速度。",
+    )
+    异环超强音页面 = 工作区.add_page(
+        "rhythm", "◆  超强音", "超强音",
+        "集中管理节奏识别、按键时长和控制键位。",
+    )
+    异环店长特供页面 = 工作区.add_page(
+        "store", "▣  店长特供", "店长特供",
+        "运行店长特供小游戏自动化，并查看必要的角色与操作提示。",
+    )
+    异环其他任务页面 = 工作区.add_page(
+        "automation", "⚡  快捷自动化", "快捷自动化",
+        "自动战斗、剧情、按 F、闪避弹刀和自定义脚本统一放在这里。",
+    )
+    工作区.add_section("环境")
+    连接设置页面 = 工作区.add_page(
+        "connection", "⌁  连接与截图", "连接与截图",
+        "选择客户端、截图来源、ADB 端口与输入延迟。",
+    )
+    其他任务设置 = 工作区.add_page(
+        "lifecycle", "▶  启动与结束", "启动与结束",
+        "管理游戏启动、定时执行以及任务结束后的行为。",
+    )
+    其他任务设置2 = 工作区.add_page(
+        "settings", "⚙  通用设置", "通用设置",
+        "调整应用行为、识图加速和其他全局选项。",
+    )
+    工作区.show("overview")
 
-    # 创建 Notebook 并指定样式
-    notebook = ttk.Notebook(主窗口外壳, style="TNotebook")
-    notebook.pack(fill="both", expand=True)
-    # 绑定事件
-    notebook.bind("<<NotebookTabChanged>>", 更新图标状态)
-    UI路径 = current_dir / "UI" / "脚本UI"
-    后缀 = ""
+    def 更新工作区任务状态(当前任务):
+        try:
+            window.after(0, lambda: 工作区.set_task_status(当前任务))
+        except tk.TclError:
+            pass
 
-    选项卡配置 = [
-        调整图片返回元组(UI路径, [f"任务蓝{后缀}.png", f"任务黑{后缀}.png"], (28, 28)),
-        调整图片返回元组(UI路径, [f"其他任务蓝{后缀}.png", f"其他任务黑{后缀}.png"], (28, 28)),
-        调整图片返回元组(UI路径, [f"启动结束蓝{后缀}.png", f"启动结束黑{后缀}.png"], (28, 28)),
-        调整图片返回元组(UI路径, [f"其他蓝{后缀}.png", f"其他黑{后缀}.png"], (28, 28)),
+    任务互斥器.set_listener(更新工作区任务状态)
 
-    ]
-    选项卡标签列表 = ["任务中心", "任务详情", "启动与结束", "通用设置"]
-    调整后列表 = 选项卡标签列表
-
-    图标数据表 = 加载选项卡图标(选项卡配置)
-    配置序号 = 0
-    选项卡任务列表 = 创建选项卡(调整后列表[配置序号], 图标数据表[配置序号])
-    配置序号 = 配置序号 + 1
-
-    选项卡其他任务加载 = 创建选项卡(调整后列表[配置序号], 图标数据表[配置序号])
-    配置序号 = 配置序号 + 1
-
-    其他任务设置 = 创建选项卡(调整后列表[配置序号], 图标数据表[配置序号])
-    配置序号 = 配置序号 + 1
-
-    其他任务设置2 = 创建选项卡(调整后列表[配置序号], 图标数据表[配置序号])
-    配置序号 = 配置序号 + 1
-
-    配置序号 = 配置序号 + 1
-
-    选项卡任务列表.grid_columnconfigure(0, weight=0)  # 容器1，不扩展
-    选项卡任务列表.grid_columnconfigure(1, weight=1)  # 容器2，可扩展
-    选项卡任务列表.grid_columnconfigure(2, weight=0)  # 容器3，不扩展
-    选项卡任务列表.grid_rowconfigure(0, weight=1)  # 行0可扩展
-
+    选项卡任务列表.grid_columnconfigure(0, weight=1)
+    选项卡任务列表.grid_columnconfigure(1, weight=1)
+    选项卡任务列表.grid_rowconfigure(0, weight=1)
+    连接设置页面.columnconfigure(0, weight=1)
     其他任务设置.columnconfigure(0, weight=1)
-
     其他任务设置2.columnconfigure(0, weight=1)
 
     按钮基础样式 = {
@@ -1863,12 +1877,12 @@ def 函数主程序():
     if 工具任务启动在这:
 
         选项卡任务列表容器3 = ttk.Frame(
-            选项卡任务列表,
+            连接设置页面,
             style="Card.TFrame",
             padding=(14, 12),
         )
         选项卡任务列表容器3.grid(
-            row=0, column=2, sticky="nsew", padx=(12, 0)
+            row=0, column=0, sticky="new"
         )
         选项卡任务列表容器3.columnconfigure(0, weight=1)  # 设置第0列的权重为1
 
@@ -2777,12 +2791,12 @@ def 函数主程序():
             小功能按钮长度 = 13
             小功能位置列表 = [1, 1, 2, 2, 3, 3, 4]
 
-            异环钓鱼子容器 = ttk.Frame(选项卡其他任务加载)
-            异环钢琴演奏子容器 = ttk.Frame(选项卡其他任务加载)
-            幻塔钓鱼子容器 = ttk.Frame(选项卡其他任务加载)
-            异环店长特供子容器 = ttk.Frame(选项卡其他任务加载)
-            异环超强音子容器 = ttk.Frame(选项卡其他任务加载)
-            异环其他任务子容器= ttk.Frame(选项卡其他任务加载)
+            异环钓鱼子容器 = 异环钓鱼页面
+            异环钢琴演奏子容器 = 异环钢琴页面
+            幻塔钓鱼子容器 = ttk.Frame(选项卡任务列表)
+            异环店长特供子容器 = 异环店长特供页面
+            异环超强音子容器 = 异环超强音页面
+            异环其他任务子容器 = 异环其他任务页面
             # 将三个子容器存入字典，方便后续切换
             子容器字典 = {
                 "异环钓鱼": 异环钓鱼子容器,
@@ -2792,10 +2806,6 @@ def 函数主程序():
                 "异环超强音": 异环超强音子容器,
                 "异环其他任务": 异环其他任务子容器,
             }
-
-            # 将所有子容器放置在相同位置，并立即隐藏
-            for container in 子容器字典.values():
-                container.grid(row=0, column=0)
 
             if 异环脚本运行:
                 def 异环钢琴窗口创建():
@@ -3001,7 +3011,7 @@ def 函数主程序():
                     ttk.Button(控制区, text="▶ 开始演奏", command=启动演奏).pack(side=tk.LEFT, padx=5)
                     ttk.Button(控制区, text="■ 停止演奏", command=函数停止任务).pack(side=tk.LEFT, padx=5)
                     ttk.Button(控制区, text="打开演奏文件夹", command=lambda :os.startfile( current_dir.parent / "外置配置文件夹")).pack(side=tk.LEFT, padx=5)
-                    ttk.Button(控制区, text="打开说明书", command=lambda: os.startfile(current_dir / "异环钢琴自动演奏工具使用说明书.txt")).pack(side=tk.LEFT, padx=5)
+                    ttk.Button(控制区, text="打开说明书", command=lambda: os.startfile(current_dir / "异环钢琴自动演奏工具使用说明书.md")).pack(side=tk.LEFT, padx=5)
                     ttk.Button(控制区, text="MIDI推荐网站", command=lambda: webbrowser.open("https://www.midishow.com/")).pack(side=tk.LEFT, padx=5)
 
                     # ---------- 内部函数 ----------
@@ -3041,11 +3051,14 @@ def 函数主程序():
                     tk.Label(运行栏, text="工具设定音域：C2-B4/36-71", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=1, column=0)
 
                 def 显示任务窗口(任务):
-                    for container in 子容器字典.values():
-                        container.grid_remove()
-                        # 显示目标子容器
-                    子容器字典[任务].grid()
-                    notebook.select(选项卡其他任务加载)
+                    页面映射 = {
+                        "异环钓鱼": "fishing",
+                        "异环钢琴": "piano",
+                        "异环店长特供": "store",
+                        "异环超强音": "rhythm",
+                        "异环其他任务": "automation",
+                    }
+                    工作区.show(页面映射.get(任务, "overview"))
 
                 异环钢琴窗口创建()
 
@@ -3201,89 +3214,121 @@ def 函数主程序():
                 def 打开异环演示视频():
                     webbrowser.open("https://www.bilibili.com/video/BV1dbogBaE8x/")
                 def 异环钓鱼窗口创建():
-                    文本容器 = ttk.LabelFrame(异环钓鱼子容器)
-                    文本容器.grid(row=0, column=0, pady=10,sticky="w")
-
-                    卖鱼容器 = ttk.Frame(文本容器)
-                    卖鱼容器.grid(row=0, column=0, pady=10, sticky="w")
-                    tk.Label(卖鱼容器, text="钓鱼次数：", font=("微软雅黑", 16), ).grid(row=0, column=0)
                     异环钓鱼次数 = tk.IntVar(value=350)
-                    tk.Spinbox(卖鱼容器, from_=1, to=99999, increment=10, textvariable=异环钓鱼次数,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=1)
-                    tk.Label(卖鱼容器, text="钓鱼时间(小时)：", font=("微软雅黑", 16), ).grid(row=0, column=2)
                     异环钓鱼时间 = tk.DoubleVar(value=66.6)
-                    tk.Spinbox(卖鱼容器, from_=0.1, to=99999, increment=0.5, textvariable=异环钓鱼时间,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=3)
-                    text = "达到最大钓鱼次数或者达到最大钓鱼时间都会停止任务，\n如：设定钓鱼次数999，钓鱼时间1小时，1小时后钓鱼次数肯定没有达到999次，但这时依然会停止任务"
-                    创建按钮2grid(卖鱼容器, "❓", lambda 文本=text: 截图方式提示窗口(文本, 标题="钓多少次买饵说明"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=6, )
-
-
-
-                    卖鱼容器 = ttk.Frame(文本容器)
-                    卖鱼容器.grid(row=5, column=0, pady=10, sticky="w")
-
-                    tk.Label(卖鱼容器, text="判断区域识图相似度：", font=("微软雅黑", 16), ).grid(row=0, column=2)
                     判断区域识图相似度变量 = tk.DoubleVar(value=0.9)
-                    tk.Spinbox(卖鱼容器, from_=0.5, to=1, increment=0.052, textvariable=判断区域识图相似度变量,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=3)
-                    text = "默认0.9，\n需要到和判断区域颜色相近的区域钓鱼请尝试提高相似度\n还是不行的话就没有办法了"
-                    创建按钮2grid(卖鱼容器, "❓", lambda 文本=text: 截图方式提示窗口(文本, 标题="判断区域识图相似度"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=4, )
-                    tk.Label(卖鱼容器, text="\u3000识图判断间隔(秒)：", font=("微软雅黑", 16), ).grid(row=0, column=5)
                     异环钓鱼识图判断频率变量 = tk.DoubleVar(value=0.05)
-                    tk.Spinbox(卖鱼容器, from_=0.001, to=999, increment=0.005, textvariable=异环钓鱼识图判断频率变量,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=6)
-
-                    卖鱼容器 = ttk.Frame(文本容器)
-                    卖鱼容器.grid(row=10, column=0, pady=10, sticky="w")
-                    卖鱼容器1 = ttk.Frame(卖鱼容器)
-                    卖鱼容器1.grid(row=0, column=0, pady=10, sticky="w")
-                    tk.Label(卖鱼容器1, text="钓多少次卖鱼：", font=("微软雅黑", 16), ).grid(row=0, column=0)
                     钓多少次卖鱼 = tk.IntVar(value=200)
-                    tk.Spinbox(卖鱼容器1, from_=1, to=99999, increment=10, textvariable=钓多少次卖鱼,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=1)
-
-
                     异环鱼舱满卖鱼变量 = tk.IntVar(value=0)
-                    创建复选框grid(current_dir, 卖鱼容器1, "舱满卖鱼", 异环鱼舱满卖鱼变量,
-                                   font=("微软雅黑", 16), 位置=0, 位置2=3, 边距x=(0,50), 边距y=0, **复选框基础样式)
-                    卖鱼容器2 = ttk.Frame(卖鱼容器)
-                    卖鱼容器2.grid(row=1, column=0, pady=10, sticky="w")
-                    tk.Label(卖鱼容器2, text="钓多少次买饵：", font=("微软雅黑", 16), ).grid(row=0, column=4)
                     钓多少次买饵 = tk.IntVar(value=200)
-                    tk.Spinbox(卖鱼容器2, from_=1, to=99999, increment=10, textvariable=钓多少次买饵,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=5)
-                    text = "买鱼饵只会买万能鱼饵(售价5贝壳)，\n购买规则为：钓100次买饵就买2组99，钓200次买饵就买3组99，以此类推\n所以如果你要开启买鱼饵，必须装备万能鱼饵去钓鱼，\n卖鱼买饵都有失败卡住重试机制，触发重试时间应该不超过30秒"
-                    创建按钮2grid(卖鱼容器2, "❓", lambda 文本=text: 截图方式提示窗口(文本, 标题="钓多少次买饵说明"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=6, )
-
-
                     异环饵空卖饵变量 = tk.IntVar(value=0)
-                    创建复选框grid(current_dir, 卖鱼容器2, "饵空卖万能饵，并切换万能饵", 异环饵空卖饵变量,
-                                   font=("微软雅黑", 16), 位置=0, 位置2=7, 边距x=(0), 边距y=0, **复选框基础样式)
-                    text = "买鱼饵只会买万能鱼饵(售价5贝壳)，\n鱼饵空了就只买一组99的万能鱼饵。并切换万能饵\n卖鱼买饵都有失败卡住重试机制，触发重试时间应该不超过30秒"
-                    创建按钮2grid(卖鱼容器2, "❓", lambda 文本=text: 截图方式提示窗口(文本, 标题="饵空卖万能饵，并切换万能饵说明"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=8, )
-                    tk.Label(选项卡任务列表容器1_2, text="", font=("微软雅黑", 16)).grid(row=0, column=7, sticky=tk.W, )
-                    文本容器 = ttk.LabelFrame(异环钓鱼子容器)
-                    文本容器.grid(row=1, column=0, pady=10, sticky="w")
-                    卖鱼容器 = ttk.Frame(文本容器)
-                    卖鱼容器.grid(row=1, column=0, pady=10, sticky="w")
                     异环钓鱼上钩截图变量 = tk.IntVar()
-                    创建复选框grid(current_dir, 卖鱼容器, "上钩截图", 异环钓鱼上钩截图变量,
-                                   font=("微软雅黑", 16), 位置=0, 位置2=4, 边距x=0, 边距y=0, **复选框基础样式)
                     上钩截图路径 = current_dir / "异环图片" / "钓鱼" / "上钩截图"
-                    创建按钮2grid(卖鱼容器, f"打开保存文件夹", lambda :os.startfile(上钩截图路径), 字体配置=("微软雅黑", int(14)), width=14, height=1, 位置=0, 位置2=5, )
-                    卖鱼容器 = ttk.Frame(文本容器)
-                    卖鱼容器.grid(row=2, column=0, pady=10, sticky="w")
                     异环钓鱼运行完毕后关闭游戏变量 = tk.IntVar()
-                    创建复选框grid(current_dir, 卖鱼容器, "运行完关闭游戏", 异环钓鱼运行完毕后关闭游戏变量,
-                                   font=("微软雅黑", 16), 位置=0, 位置2=7, 边距x=0, 边距y=0, **复选框基础样式)
-
                     异环钓鱼运行完毕后电脑关机变量 = tk.IntVar()
-                    创建复选框grid(current_dir, 卖鱼容器, "运行完电脑关机", 异环钓鱼运行完毕后电脑关机变量,
-                                   font=("微软雅黑", 16), 位置=0, 位置2=9, 边距x=0, 边距y=0, **复选框基础样式)
 
-                    #tk.Label(文本容器, text="买鱼饵只会买万能鱼饵(售价5贝壳)，\n购买规则为：钓100次买饵就买2组99，钓200次买饵就买3组99，以此类推\n所以如果你要开启买鱼饵，必须装备万能鱼饵去钓鱼，\n卖鱼买饵都有失败卡住重试机制，触发重试时间应该不超过30秒", font=("楷体", 16, "bold", "italic"), fg="green").grid(row=0, column=4, sticky="w")
-                    文本容器 = ttk.LabelFrame(异环钓鱼子容器)
-                    文本容器.grid(row=3, column=0, pady=10,sticky="w")
+                    异环钓鱼子容器.grid_columnconfigure(0, weight=1)
+
+                    def 创建数值行(父容器, 行, 标签文本, 变量, 最小值, 最大值, 步长, 帮助=None):
+                        ttk.Label(父容器, text=标签文本, style="Card.TLabel").grid(
+                            row=行, column=0, sticky="w", pady=7
+                        )
+                        ttk.Spinbox(
+                            父容器,
+                            from_=最小值,
+                            to=最大值,
+                            increment=步长,
+                            textvariable=变量,
+                            width=10,
+                        ).grid(row=行, column=1, sticky="e", padx=(12, 0), pady=7)
+                        if 帮助:
+                            ttk.Button(
+                                父容器,
+                                text="?",
+                                style="Icon.TButton",
+                                width=2,
+                                command=lambda: 截图方式提示窗口(帮助[0], 标题=帮助[1]),
+                            ).grid(row=行, column=2, padx=(8, 0))
+
+                    基础卡片 = ttk.LabelFrame(
+                        异环钓鱼子容器, text="停止条件与识别", padding=(16, 12)
+                    )
+                    基础卡片.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+                    基础卡片.grid_columnconfigure(0, weight=1)
+                    创建数值行(
+                        基础卡片, 0, "最多钓鱼次数", 异环钓鱼次数, 1, 99999, 10,
+                        ("次数或时间任一达到上限都会停止任务。", "停止条件"),
+                    )
+                    创建数值行(基础卡片, 1, "最长运行时间（小时）", 异环钓鱼时间, 0.1, 99999, 0.5)
+                    创建数值行(
+                        基础卡片, 2, "判断区域相似度", 判断区域识图相似度变量, 0.5, 1, 0.01,
+                        ("默认 0.9；背景颜色接近判断区域时可适当提高。", "识图相似度"),
+                    )
+                    创建数值行(基础卡片, 3, "识图判断间隔（秒）", 异环钓鱼识图判断频率变量, 0.001, 999, 0.005)
+
+                    补给卡片 = ttk.LabelFrame(
+                        异环钓鱼子容器, text="卖鱼与补给", padding=(16, 12)
+                    )
+                    补给卡片.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+                    补给卡片.grid_columnconfigure(0, weight=1)
+                    创建数值行(补给卡片, 0, "每隔多少次卖鱼", 钓多少次卖鱼, 1, 99999, 10)
+                    ttk.Checkbutton(
+                        补给卡片, text="鱼舱满时自动卖鱼", variable=异环鱼舱满卖鱼变量
+                    ).grid(row=1, column=0, columnspan=3, sticky="w", pady=7)
+                    创建数值行(
+                        补给卡片, 2, "每隔多少次买饵", 钓多少次买饵, 1, 99999, 10,
+                        ("只购买万能鱼饵，并带有失败重试机制。", "自动买饵"),
+                    )
+                    ttk.Checkbutton(
+                        补给卡片,
+                        text="鱼饵耗尽时购买并切换万能饵",
+                        variable=异环饵空卖饵变量,
+                    ).grid(row=3, column=0, columnspan=3, sticky="w", pady=7)
+
+                    完成卡片 = ttk.LabelFrame(
+                        异环钓鱼子容器, text="记录与完成动作", padding=(16, 12)
+                    )
+                    完成卡片.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+                    ttk.Checkbutton(
+                        完成卡片, text="保存上钩截图", variable=异环钓鱼上钩截图变量
+                    ).grid(row=0, column=0, sticky="w", pady=6)
+                    ttk.Button(
+                        完成卡片,
+                        text="打开截图文件夹",
+                        command=lambda: os.startfile(上钩截图路径),
+                    ).grid(row=0, column=1, padx=(12, 0), pady=6)
+                    ttk.Checkbutton(
+                        完成卡片,
+                        text="任务完成后关闭游戏",
+                        variable=异环钓鱼运行完毕后关闭游戏变量,
+                    ).grid(row=1, column=0, columnspan=2, sticky="w", pady=6)
+                    ttk.Checkbutton(
+                        完成卡片,
+                        text="任务完成后关闭电脑",
+                        variable=异环钓鱼运行完毕后电脑关机变量,
+                    ).grid(row=2, column=0, columnspan=2, sticky="w", pady=6)
+
+                    提示卡片 = ttk.LabelFrame(
+                        异环钓鱼子容器, text="运行前检查", padding=(16, 12)
+                    )
+                    提示卡片.grid(row=3, column=0, sticky="ew", pady=(0, 12))
+                    ttk.Label(
+                        提示卡片,
+                        text=(
+                            "选择与判断区域颜色差异明显的钓鱼点。\n"
+                            "关闭 HDR、滤镜、插帧和 FSR 等画面处理。\n"
+                            "首次运行建议对照演示视频观察识别效果。"
+                        ),
+                        style="CardMuted.TLabel",
+                        justify="left",
+                    ).grid(row=0, column=0, sticky="nw")
+
+                    操作栏 = ttk.Frame(
+                        异环钓鱼子容器, style="Card.TFrame", padding=(14, 10)
+                    )
+                    操作栏.grid(row=4, column=0, sticky="ew")
+                    for 列 in range(4):
+                        操作栏.grid_columnconfigure(列, weight=1)
 
                     def 加载异环钓鱼设置():
                         if getattr(sys, 'frozen', False):
@@ -3380,24 +3425,23 @@ def 函数主程序():
                         新方式集合启动任务("异环钓鱼")
 
                     加载异环钓鱼设置()
-                    创建按钮2grid(文本容器, f"启动任务", 启动异环钓鱼任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=0, )
-                    创建按钮2grid(文本容器, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=2, )
-                    创建按钮2grid(文本容器, f"帮助说明",
-                                  lambda: os.startfile(Path(rf"{current_dir}\异环图片\钓鱼\帮助说明.png")),
-                                  字体配置=("微软雅黑", int(14)), width=11, height=1,
-                                  位置=0, 位置2=3, )
-
-
-                    创建按钮2grid(文本容器, f"打开演示视频", 打开异环演示视频, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=3, )
-                    tk.Label(文本容器, text="看看你的运行效果和演示视频是否一致", font=("楷体", 16, "bold", "italic"), fg="green").grid(row=0, column=4, sticky="w")
-                    文本容器 = ttk.Frame(异环钓鱼子容器)
-                    文本容器.grid(row=4, column=0, pady=10,sticky="w")
-
-
-                    tk.Label(文本容器, text="1.请确保钓鱼背景和判断区域不相似(比如背景是海，都是蓝色)，\n不然会判断失败，如果相似请更换钓鱼点位\n\n关闭游戏和显卡驱动插帧，AMD显卡请在显卡驱动和游戏关闭FSR等相关功能", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=0, column=0, sticky="w")
-
-                    #tk.Label(文本容器, text="\n\n异环虽然能后台传递鼠标坐标，但不知道为什么很多地方真实鼠标不在那个位置就不能点击\n"
-                                            #"而有的地方则可以不用真实鼠标在那个地方就能点击，很迷，所以卖鱼买饵时会占用一点点鼠标", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=9, column=0,sticky="w")
+                    创建按钮2grid(
+                        操作栏, "启动任务", 启动异环钓鱼任务,
+                        width=11, 位置=0, 位置2=0, style="Primary.TButton",
+                    )
+                    创建按钮2grid(
+                        操作栏, "停止任务", 函数停止任务,
+                        width=11, 位置=0, 位置2=1, style="Danger.TButton",
+                    )
+                    创建按钮2grid(
+                        操作栏, "帮助说明",
+                        lambda: os.startfile(Path(rf"{current_dir}\异环图片\钓鱼\帮助说明.png")),
+                        width=11, 位置=0, 位置2=2,
+                    )
+                    创建按钮2grid(
+                        操作栏, "演示视频", 打开异环演示视频,
+                        width=11, 位置=0, 位置2=3,
+                    )
 
                 异环钓鱼窗口创建()
                 异环店长特供窗口创建()
@@ -3577,7 +3621,7 @@ def 函数主程序():
                     padding=(18, 16),
                 )
                 选项卡任务列表中间容器.grid(
-                    row=0, column=1, padx=(12, 0), pady=0, sticky="new"
+                    row=2, column=0, padx=0, pady=(12, 0), sticky="new"
                 )
                 选项卡任务列表中间容器.columnconfigure(0, weight=1)
 
@@ -3642,6 +3686,12 @@ def 函数主程序():
                 线程事件任务循环3 = threading.Event()
                 线程事件停止循环4 = threading.Event()
                 线程事件任务循环4 = threading.Event()
+                其他任务循环事件列表.extend([
+                    线程事件任务循环1,
+                    线程事件任务循环2,
+                    线程事件任务循环3,
+                    线程事件任务循环4,
+                ])
 
                 # 用于保存和加载的映射（辅助）
                 任务选择变量列表 = [任务1选择变量, 任务2选择变量, 任务3选择变量, 任务4选择变量]
@@ -3916,6 +3966,14 @@ def 函数主程序():
 
                 def 创建任务启动函数(任务编号, 选择变量, 事件停止, 事件循环, 状态标签):
                     """返回一个无参函数，用于热键触发"""
+                    当前互斥凭证 = None
+
+                    def 释放任务占用():
+                        nonlocal 当前互斥凭证
+                        事件循环.clear()
+                        事件停止.clear()
+                        任务互斥器.release(当前互斥凭证)
+                        当前互斥凭证 = None
 
                     def update_status(running):
                         """主线程安全更新状态标签"""
@@ -3925,7 +3983,7 @@ def 函数主程序():
                         window.after(0, lambda: 状态标签.config(text=text, fg=color))
                     last_trigger_time = 0
                     def 任务启动():
-                        nonlocal last_trigger_time
+                        nonlocal last_trigger_time, 当前互斥凭证
                         current_time = time.time()
                         # 防抖：300毫秒内的重复触发直接忽略
                         if current_time - last_trigger_time < 0.5:
@@ -3942,21 +4000,43 @@ def 函数主程序():
                                 事件循环.clear()
                                 if not 事件停止.is_set():
                                     break
+                            释放任务占用()
                             update_status(False)
                         else:
+                            当前任务 = 选择变量.get()
+                            当前互斥凭证 = 任务互斥器.acquire(
+                                f"快捷任务 {任务编号} · {当前任务}"
+                            )
+                            if 当前互斥凭证 is None:
+                                正在运行 = 任务互斥器.active_name or "其他任务"
+                                window.after(
+                                    0,
+                                    lambda: messagebox.showwarning(
+                                        "任务互斥",
+                                        f"“{正在运行}”正在运行，不能同时启动“{当前任务}”。",
+                                        parent=window,
+                                    ),
+                                )
+                                return
                             update_status(True)
                             事件循环.set()
                             事件停止.set()
-                            函数保存设置()  # 保存全部任务设置
-                            adb路径 = 获取adb路径并检查(检查分辨率=False,事件循环=事件循环,事件停止=事件停止)
                             try:
+                                函数保存设置()  # 保存全部任务设置
+                                adb路径 = 获取adb路径并检查(
+                                    检查分辨率=False,
+                                    事件循环=事件循环,
+                                    事件停止=事件停止,
+                                )
                                 _, _, 异环句柄, 窗口矩形, _ = adb路径
-                            except Exception:
+                            except Exception as e:
+                                logger.error(f"快捷任务{任务编号}初始化失败: {e}")
+                                释放任务占用()
+                                update_status(False)
                                 return
                             游戏静音 = True
                             from 根据txt执行脚本 import 执行脚本内容
 
-                            当前任务 = 选择变量.get()
                             if 当前任务 == "自动跳过剧情":
 
                                 threading.Thread(target=自动剧情, args=(current_dir, adb路径, 事件循环, 事件停止)).start()
@@ -3989,6 +4069,8 @@ def 函数主程序():
                                         脚本内容 = f.read()
                                 except Exception as e:
                                     messagebox.showerror("读取失败", f"读取脚本文件失败：{e}")
+                                    释放任务占用()
+                                    update_status(False)
                                     return
 
                                 def 执行脚本():
@@ -4004,6 +4086,7 @@ def 函数主程序():
                                     time.sleep(0.5)
                                     if not 事件停止.is_set():
                                         break
+                                释放任务占用()
                                 update_status(False)
 
                             threading.Thread(target=标签变化, args=()).start()
@@ -4037,12 +4120,10 @@ def 函数主程序():
                 threading.Thread(target=注册其他任务宏热键,
                                  args=()).start()
 
-            for container in 子容器字典.values():
-                container.grid_remove()  # 隐藏
-
-
-
     def 检查更新并弹窗():
+        if os.environ.get("NOKI_DEV_SKIP_UPDATE", "") == "1":
+            logger.debug("开发环境已跳过在线更新检查")
+            return
 
         update_path = os.path.join(current_dir, 'update.json')
         with open(update_path, 'r', encoding='utf-8') as file:
@@ -4088,6 +4169,7 @@ def 函数主程序():
                      args=()).start()
     threading.Thread(target=刷新端口列表2,
                      args=()).start()
+    工作区.show(os.environ.get("NOKI_DEV_START_PAGE", "overview"))
     window.update_idletasks()
     polish_legacy_widgets(window)
     # 部分任务详情会在后台线程注册后补充控件，再做一次轻量外观整理。
