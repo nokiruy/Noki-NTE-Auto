@@ -21,13 +21,13 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Clean
 
 1. 在 `build/venv` 创建隔离的 Python 3.12 环境。
 2. 安装 `requirements-build.txt` 中的运行和打包依赖。
-3. 导入 `main.py`，提前检查缺失依赖。
+3. 导入 `src/main.py`，提前检查缺失依赖。
 4. 使用 MSVC x64 编译：
    - `ToastLib.dll`
    - `mutedll.dll`
    - `OpenUrl.dll`
    - `Noki_NTE_Auto_Launcher.exe`
-5. 使用 PyInstaller 将 `main.py` 打包为单文件 GUI 程序。
+5. 使用 PyInstaller 将 `src/main.py` 打包为单文件 GUI 程序。
 6. 按程序的相对路径约定复制 UI、图片和配置文件。
 
 ## 增量构建
@@ -66,6 +66,19 @@ release/
 ```
 
 正常发布时应打包整个 `release` 目录，不能只复制单独的 EXE。
+
+## 源码目录
+
+全部 Python 源码位于 `src/`。开发环境直接运行：
+
+```powershell
+.\build\venv\Scripts\python.exe .\src\main.py
+```
+
+`src/project_paths.py` 负责统一解析资源根目录：
+
+- 源码运行时指向仓库根目录。
+- PyInstaller 打包后指向主 EXE 所在的 `dist` 目录。
 
 ## 测试说明
 

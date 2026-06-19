@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $Root = [IO.Path]::GetFullPath($PSScriptRoot)
+$SourceRoot = Join-Path $Root "src"
 $BuildRoot = Join-Path $Root "build"
 $ReleaseRoot = Join-Path $Root "release"
 $DistRoot = Join-Path $ReleaseRoot "dist"
@@ -76,7 +77,7 @@ if (-not $SkipInstall) {
 }
 
 Write-Host "[3/5] 验证源码依赖可导入"
-& $Python -B -c "import main; print('Python import smoke test: OK')"
+& $Python -B -c "import sys; sys.path.insert(0, r'$SourceRoot'); import main; print('Python import smoke test: OK')"
 if ($LASTEXITCODE -ne 0) {
     throw "主程序导入测试失败"
 }
@@ -139,9 +140,10 @@ if (-not $SkipPackage) {
         --distpath $DistRoot `
         --workpath (Join-Path $BuildRoot "pyinstaller") `
         --specpath $BuildRoot `
+        --paths $SourceRoot `
         --hidden-import "pynput.mouse" `
         --collect-all "pyaudiowpatch" `
-        (Join-Path $Root "main.py")
+        (Join-Path $SourceRoot "main.py")
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller 打包失败"
     }
