@@ -30,6 +30,7 @@ import logging
 import io
 import shutil
 import hashlib
+from ui_theme import COLORS, apply_modern_theme, polish_legacy_widgets
 
 from 任务执行器 import 执行器
 
@@ -1383,7 +1384,11 @@ def 函数主程序():
     def 创建选项卡(选项卡标题, 图标对):
         """创建单个选项卡并初始化"""
         global notebook
-        tab = ttk.Frame(notebook)
+        tab = ttk.Frame(
+            notebook,
+            style="App.TFrame",
+            padding=(18, 16, 18, 16),
+        )
         notebook.add(
             tab,
             text=选项卡标题,
@@ -1515,6 +1520,7 @@ def 函数主程序():
         app_icon_path = current_dir / "幻塔图片" / "app_iconHottA.png"
     elif 异环脚本运行:
         app_icon_path = current_dir / "异环图片" / "app_iconNTE.png"
+    app_logo_path = app_icon_path
     window = tk.Tk()
     window.withdraw()  # 隐藏窗口
     current_version = "0.0.1"
@@ -1619,32 +1625,52 @@ def 函数主程序():
 
     window.iconbitmap(app_icon_path)
     窗口管理器 = 子窗口管理器(window, 图标路径=app_icon_path)
-    # 创建自定义样式
-    style = ttk.Style()
-    style.theme_use('vista')
-    # 配置选项卡样式
-    style.configure('TNotebook', tabposition='wn',
-                    padding=(20, 10, 20, 10),  # 增大上下边距
-                    font=("楷体", 12)
-                    )
+    style = apply_modern_theme(window)
+    style.configure("TNotebook", tabposition="wn")
 
-    颜色配置 = {
-        '选中': '#29F1FF',
-        '悬停': '#8F8F8F'  # 灰白
-    }
-    style.map('TNotebook.Tab',
-              foreground=[
-                  ('selected', 颜色配置['选中']),
-                  ('active', 颜色配置['悬停'])
-              ]
-              )
-    按钮字体 = ("微软雅黑", 16, "bold")
-    选项卡字体 = ("微软雅黑", 11, "bold")
+    屏幕宽度 = window.winfo_screenwidth()
+    屏幕高度 = window.winfo_screenheight()
+    窗口宽度 = min(1460, int(屏幕宽度 * 0.92))
+    窗口高度 = min(900, int(屏幕高度 * 0.88))
+    窗口x = max(0, (屏幕宽度 - 窗口宽度) // 2)
+    窗口y = max(0, (屏幕高度 - 窗口高度) // 2)
+    window.geometry(f"{窗口宽度}x{窗口高度}+{窗口x}+{窗口y}")
+    window.minsize(min(1080, 屏幕宽度 - 80), min(680, 屏幕高度 - 80))
 
-    style = ttk.Style()
-    style.configure("TNotebook.Tab", font=选项卡字体)
+    主窗口外壳 = ttk.Frame(window, style="App.TFrame", padding=(16, 14, 16, 16))
+    主窗口外壳.pack(fill="both", expand=True)
+
+    顶栏 = ttk.Frame(主窗口外壳, style="Header.TFrame", padding=(16, 12))
+    顶栏.pack(fill="x", pady=(0, 12))
+    顶栏.columnconfigure(1, weight=1)
+
+    try:
+        顶栏图标图像 = Image.open(app_logo_path).convert("RGBA")
+        顶栏图标图像.thumbnail((44, 44), Image.Resampling.LANCZOS)
+        顶栏图标 = ImageTk.PhotoImage(顶栏图标图像)
+        顶栏图标标签 = ttk.Label(顶栏, image=顶栏图标, style="Card.TLabel")
+        顶栏图标标签.image = 顶栏图标
+        顶栏图标标签.grid(row=0, column=0, rowspan=2, padx=(0, 12))
+    except Exception as e:
+        logger.debug(f"顶栏图标加载失败: {e}")
+
+    ttk.Label(顶栏, text="Noki NTE Auto", style="HeaderTitle.TLabel").grid(
+        row=0, column=1, sticky="sw"
+    )
+    ttk.Label(
+        顶栏,
+        text="异环自动化工具 · 任务、截图与运行设置集中管理",
+        style="HeaderSubtitle.TLabel",
+    ).grid(row=1, column=1, sticky="nw")
+    ttk.Label(顶栏, text=f"v{current_version}", style="Badge.TLabel").grid(
+        row=0, column=2, rowspan=2, padx=(8, 0)
+    )
+    ttk.Label(顶栏, text="免费开源", style="SuccessBadge.TLabel").grid(
+        row=0, column=3, rowspan=2, padx=(8, 0)
+    )
+
     # 创建 Notebook 并指定样式
-    notebook = ttk.Notebook(window, style='TNotebook')
+    notebook = ttk.Notebook(主窗口外壳, style="TNotebook")
     notebook.pack(fill="both", expand=True)
     # 绑定事件
     notebook.bind("<<NotebookTabChanged>>", 更新图标状态)
@@ -1652,15 +1678,14 @@ def 函数主程序():
     后缀 = ""
 
     选项卡配置 = [
-        调整图片返回元组(UI路径, [f"任务蓝{后缀}.png", f"任务黑{后缀}.png"]),
-        调整图片返回元组(UI路径, [f"其他任务蓝{后缀}.png", f"其他任务黑{后缀}.png"]),
-        调整图片返回元组(UI路径, [f"启动结束蓝{后缀}.png", f"启动结束黑{后缀}.png"]),
-        调整图片返回元组(UI路径, [f"其他蓝{后缀}.png", f"其他黑{后缀}.png"]),
+        调整图片返回元组(UI路径, [f"任务蓝{后缀}.png", f"任务黑{后缀}.png"], (28, 28)),
+        调整图片返回元组(UI路径, [f"其他任务蓝{后缀}.png", f"其他任务黑{后缀}.png"], (28, 28)),
+        调整图片返回元组(UI路径, [f"启动结束蓝{后缀}.png", f"启动结束黑{后缀}.png"], (28, 28)),
+        调整图片返回元组(UI路径, [f"其他蓝{后缀}.png", f"其他黑{后缀}.png"], (28, 28)),
 
     ]
-    选项卡标签列表 = ["工具任务启动", "其他任务加载", "启动项结束项",
-                      "其他详细设置", ]
-    调整后列表 = 调整列表字符串长度(选项卡标签列表)
+    选项卡标签列表 = ["任务中心", "任务详情", "启动与结束", "通用设置"]
+    调整后列表 = 选项卡标签列表
 
     图标数据表 = 加载选项卡图标(选项卡配置)
     配置序号 = 0
@@ -1687,41 +1712,31 @@ def 函数主程序():
 
     其他任务设置2.columnconfigure(0, weight=1)
 
-
-    style.configure("TButton", font=("microsoftyahei", 14))
-
     按钮基础样式 = {
-        "bg": "#29F1FF",  # 正常背景颜色#0A59F7
-        "fg": "#1E1F22",  # 正常文本颜色
-        "activebackground": "#70F6FF",  # 鼠标悬停时的背景颜色#4581F8
-        "activeforeground": "#1E1F22"  # 鼠标悬停时的文本颜色
+        "bg": COLORS["accent"],
+        "fg": "#FFFFFF",
+        "activebackground": COLORS["accent_hover"],
+        "activeforeground": "#FFFFFF"
     }
 
     def 创建按钮2grid(归属, 标签, 绑定函数, 字体配置=("微软雅黑", 12), width=8, height=1, 位置=0, 位置2=0,sy="" ,**kwargs):
-        font_family = 字体配置[0]
-        font_size = 字体配置[1]
-        font_family_ascii = font_family.replace(" ", "").encode('ascii', 'ignore').decode().lower()
-        style_name = f"CustomBtn.{font_family_ascii}_{font_size}"
-        try:
-            if not style.layout(style_name):
-                raise tk.TclError
-        except tk.TclError:
-            try:
-                style.layout(style_name, style.layout("TButton"))
-
-                font_obj = font.Font(family=font_family, size=font_size)
-                line_height = font_obj.metrics("linespace")
-                vertical_pad = max(0, (height * line_height - line_height) // 2)
-
-                # 配置样式
-                style.configure(
-                    style_name,
-                    font=字体配置,
-                    anchor='center',
-                    padding=(0, vertical_pad))
-            except tk.TclError:
-                # 回退方案：使用默认样式
-                style_name = "TButton"
+        显式样式 = kwargs.pop("style", None)
+        任务按钮标签 = {
+            "异环钢琴", "异环钓鱼", "店长特供", "超强音",
+            "自动战斗", "自动闪避弹刀", "自动按F", "更多任务",
+        }
+        if 显式样式:
+            style_name = 显式样式
+        elif 标签 in {"❓", "?"}:
+            style_name = "Icon.TButton"
+        elif "停止" in 标签 or "结束任务" in 标签:
+            style_name = "Danger.TButton"
+        elif "启动任务" in 标签 or "开始演奏" in 标签 or "点击启用" in 标签:
+            style_name = "Primary.TButton"
+        elif 标签 in 任务按钮标签:
+            style_name = "Task.TButton"
+        else:
+            style_name = "TButton"
 
 
         按钮实例 = ttk.Button(
@@ -1734,11 +1749,14 @@ def 函数主程序():
             **kwargs
         )
 
-        按钮实例.grid(row=位置, column=位置2, padx=5, pady=5, sticky=sy)  #, sticky="ew"
+        按钮实例.grid(row=位置, column=位置2, padx=5, pady=5, sticky=sy or "ew")
         return 按钮实例
     复选框基础样式 = {
-        "bg": "#F0F0F0",  # 正常背景颜色
-        "fg": "#221F1E"  # 正常文本颜色
+        "bg": COLORS["surface"],
+        "fg": COLORS["text"],
+        "activebackground": COLORS["surface"],
+        "activeforeground": COLORS["accent"],
+        "highlightthickness": 0,
     }
 
     def 创建复选框grid(current_dir, 归属, 标签, 绑定变量, font=("微软雅黑", 12), 位置=0, 位置2=0, 边距x=0, 边距y=0, sy=tk.W, **kwargs):
@@ -1833,20 +1851,31 @@ def 函数主程序():
         return 单选框实例
 
     单选框基础样式 = {
-        "bg": "#F0F0F0",  # 正常背景颜色
-        "fg": "#221F1E"  # 正常文本颜色
+        "bg": COLORS["surface"],
+        "fg": COLORS["text"],
+        "activebackground": COLORS["surface"],
+        "activeforeground": COLORS["accent"],
+        "highlightthickness": 0,
     }
     工具任务启动在这=True
 
     if 工具任务启动在这:
 
-        选项卡任务列表容器3 = ttk.Frame(选项卡任务列表)
-        选项卡任务列表容器3.grid(row=0, column=2, sticky=tk.NE,)
+        选项卡任务列表容器3 = ttk.Frame(
+            选项卡任务列表,
+            style="Card.TFrame",
+            padding=(14, 12),
+        )
+        选项卡任务列表容器3.grid(
+            row=0, column=2, sticky="nsew", padx=(12, 0)
+        )
         选项卡任务列表容器3.columnconfigure(0, weight=1)  # 设置第0列的权重为1
 
         选项卡任务列表容器3.columnconfigure(0, weight=1)  # 设置第0列的权重为1
 
-        选项卡任务列表容器3_0 = ttk.Frame(选项卡任务列表容器3)
+        选项卡任务列表容器3_0 = ttk.Frame(
+            选项卡任务列表容器3, style="Card.TFrame"
+        )
         选项卡任务列表容器3_0.grid(row=0, column=0, sticky=tk.W,)
         选项卡任务列表容器3_0.columnconfigure(0, weight=1)
         选项卡任务列表容器3_0.columnconfigure(1, weight=1)
@@ -1866,13 +1895,17 @@ def 函数主程序():
 
         # 配置父容器（选项卡任务列表容器3）的列权重
         选项卡任务列表容器3.columnconfigure(1, weight=1)  # 设置第0列的权重为1
-        选项卡任务列表容器3_1 = ttk.LabelFrame(选项卡任务列表容器3)
+        选项卡任务列表容器3_1 = ttk.LabelFrame(
+            选项卡任务列表容器3, text="连接状态"
+        )
         选项卡任务列表容器3_1.grid(row=1, column=0, sticky="ew", )
         选项卡任务列表容器3_1.columnconfigure(0, weight=1)
 
 
         选项卡任务列表容器3.columnconfigure(2, weight=1)  # 设置第0列的权重为1
-        选项卡任务列表容器3_3 = ttk.LabelFrame(选项卡任务列表容器3)
+        选项卡任务列表容器3_3 = ttk.LabelFrame(
+            选项卡任务列表容器3, text="截图来源"
+        )
         选项卡任务列表容器3_3.grid(row=2, column=0, sticky="ew", )
         选项卡任务列表容器3_3.columnconfigure(0, weight=1)
         标签 = tk.Label(选项卡任务列表容器3_3, text="截图方式:", font=("微软雅黑", 16))
@@ -1960,7 +1993,9 @@ def 函数主程序():
                       字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=2, )
 
         选项卡任务列表容器3.columnconfigure(3, weight=1)  # 设置第0列的权重为1
-        选项卡任务列表容器3_2 = ttk.LabelFrame(选项卡任务列表容器3)
+        选项卡任务列表容器3_2 = ttk.LabelFrame(
+            选项卡任务列表容器3, text="设备与窗口"
+        )
         选项卡任务列表容器3_2.grid(row=3, column=0, sticky="ew", )
         选项卡任务列表容器3_2.columnconfigure(0, weight=1)
 
@@ -1981,7 +2016,9 @@ def 函数主程序():
         创建按钮2grid(选项卡任务列表容器3_2, "❓", lambda: 执行器.提交任务(截图方式帮助说明, 异步=False),
                       字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=5, )
         选项卡任务列表容器3.columnconfigure(4, weight=1)  # 设置第0列的权重为1
-        选项卡任务列表容器3_4 = ttk.LabelFrame(选项卡任务列表容器3)
+        选项卡任务列表容器3_4 = ttk.LabelFrame(
+            选项卡任务列表容器3, text="输入延迟"
+        )
         选项卡任务列表容器3_4.grid(row=4, column=0, sticky="ew", )
         选项卡任务列表容器3_4.columnconfigure(0, weight=1)
         标签 = tk.Label(选项卡任务列表容器3_4, text="PC鼠标延迟:", font=("微软雅黑", 16))
@@ -2027,7 +2064,9 @@ def 函数主程序():
                       字体配置=("微软雅黑", 14), width=2, height=1, 位置=1, 位置2=2, )
 
         选项卡任务列表容器3.columnconfigure(5, weight=1)  # 设置第0列的权重为1
-        缩略图容器 = ttk.LabelFrame(选项卡任务列表容器3)
+        缩略图容器 = ttk.LabelFrame(
+            选项卡任务列表容器3, text="执行速度"
+        )
         缩略图容器.grid(row=5, column=0, sticky="ew", pady=5, )
 
         标签 = tk.Label(
@@ -2366,10 +2405,20 @@ def 函数主程序():
     其他任务设置在这 = True
     if 其他任务设置在这:
         定时启动变量 = tk.IntVar()
-        其他任务设置2_1_1 = ttk.Frame(其他任务设置2)
-        其他任务设置2_1_1.grid(row=0, column=0, sticky=tk.NW)
+        其他任务设置2_1_1 = ttk.Frame(
+            其他任务设置2, style="Card.TFrame", padding=(18, 16)
+        )
+        其他任务设置2_1_1.grid(row=0, column=0, sticky="new")
 
-        其他任务设置2_1_12 = ttk.Frame(其他任务设置2_1_1)
+        ttk.Label(
+            其他任务设置2_1_1,
+            text="定时启动",
+            style="CardSection.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        其他任务设置2_1_12 = ttk.Frame(
+            其他任务设置2_1_1, style="Card.TFrame"
+        )
         其他任务设置2_1_12.grid(row=1, column=0)
 
         创建复选框grid(current_dir, 其他任务设置2_1_12, "定时启动", 定时启动变量,
@@ -2409,15 +2458,23 @@ def 函数主程序():
         print(f"长度：{减少长度}")
         文本框长度=55-减少长度
         文本框宽度=3
-        脚本启动结束容器 = ttk.Frame(其他任务设置)
+        脚本启动结束容器 = ttk.Frame(
+            其他任务设置, style="App.TFrame"
+        )
         脚本启动结束容器.grid(row=0, column=0, sticky="news")
 
         style = ttk.Style()
         # 设置标签的字体颜色为红色
-        style.configure("Red.TLabel", foreground="red", font=("微软雅黑", 20))
+        style.configure(
+            "Red.TLabel",
+            background=COLORS["danger_soft"],
+            foreground=COLORS["danger"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+            padding=(12, 8),
+        )
         label = ttk.Label(
             其他任务设置,
-            text="该界面的功能经测试可能会被杀毒软件视为敏感操作从而误报️",
+            text="安全提示：启动/结束自动打开文件或应用，可能触发杀毒软件误报。",
             style="Red.TLabel"  # 设置字体和大小
         )
         label.grid(row=1, column=0, sticky="news") # 设置标签的位置
@@ -2696,12 +2753,27 @@ def 函数主程序():
 
     if 异环脚本运行:
         if 异环脚本运行:
-            选项卡任务列表容器1 = ttk.Frame(选项卡任务列表)
-            选项卡任务列表容器1.grid(row=0, column=0, padx=0, pady=0, sticky=tk.NW)
-            选项卡任务列表容器1_2 = ttk.Frame(选项卡任务列表容器1)
-            选项卡任务列表容器1_2.grid(row=5, column=0, padx=0, pady=0)
-            小功能按钮字体 = 15
-            小功能按钮长度 = 11
+            选项卡任务列表容器1 = ttk.Frame(
+                选项卡任务列表, style="App.TFrame"
+            )
+            选项卡任务列表容器1.grid(
+                row=0, column=0, padx=0, pady=0, sticky="nsew"
+            )
+            选项卡任务列表容器1_2 = ttk.Frame(
+                选项卡任务列表容器1,
+                style="Card.TFrame",
+                padding=(14, 12),
+            )
+            选项卡任务列表容器1_2.grid(row=0, column=0, sticky="new")
+            选项卡任务列表容器1_2.columnconfigure(1, weight=1)
+            选项卡任务列表容器1_2.columnconfigure(2, weight=1)
+            ttk.Label(
+                选项卡任务列表容器1_2,
+                text="常用任务",
+                style="CardSection.TLabel",
+            ).grid(row=0, column=1, columnspan=2, sticky="w", padx=5, pady=(0, 8))
+            小功能按钮字体 = 11
+            小功能按钮长度 = 13
             小功能位置列表 = [1, 1, 2, 2, 3, 3, 4]
 
             异环钓鱼子容器 = ttk.Frame(选项卡其他任务加载)
@@ -3332,13 +3404,13 @@ def 函数主程序():
                 任务1选择变量=None
                 任务2选择变量 = None
                 创建按钮2grid(选项卡任务列表容器1_2, "异环钢琴", lambda: 执行器.提交任务(显示任务窗口, "异环钢琴", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=小功能位置列表[5], 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=1, 位置2=1)
                 创建按钮2grid(选项卡任务列表容器1_2, "异环钓鱼", lambda: 执行器.提交任务(显示任务窗口,"异环钓鱼", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=小功能位置列表[6], 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=1, 位置2=2)
                 创建按钮2grid(选项卡任务列表容器1_2, "店长特供", lambda: 执行器.提交任务(显示任务窗口,"异环店长特供", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=6, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=2, 位置2=1)
                 创建按钮2grid(选项卡任务列表容器1_2, "超强音", lambda: 执行器.提交任务(显示任务窗口,"异环超强音", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=7, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=2, 位置2=2)
 
                 def auto_battle_task(设置任务名,设置任务编号=1):
                     try:
@@ -3353,16 +3425,16 @@ def 函数主程序():
                         print(e)
 
                 创建按钮2grid(选项卡任务列表容器1_2, "自动战斗", lambda :auto_battle_task("自动战斗"),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=10, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=1)
                 创建按钮2grid(选项卡任务列表容器1_2, "自动闪避弹刀", lambda: auto_battle_task("自动闪避弹刀",2),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=2)
 
 
                 创建按钮2grid(选项卡任务列表容器1_2, "自动按F", lambda :auto_battle_task("自动按F"),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=9, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=4, 位置2=1)
 
                 创建按钮2grid(选项卡任务列表容器1_2, "更多任务", lambda: 执行器.提交任务(显示任务窗口,"异环其他任务", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=2)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=4, 位置2=2)
 
 
                 def 手动检查更新():
@@ -3376,31 +3448,49 @@ def 函数主程序():
                     if 文本 != False:
                         版本更新提示窗口(文本, 标题="版本更新提示")
                 创建按钮2grid(选项卡任务列表容器1_2, "检查更新", lambda: 执行器.提交任务(手动检查更新,  异步=True),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=2)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=5, 位置2=2)
 
-                选项卡任务列表容器1_2 = ttk.Frame(选项卡任务列表容器1)
-                选项卡任务列表容器1_2.grid(row=7, column=0, padx=0, pady=0)
+                选项卡任务列表容器1_2 = ttk.Frame(
+                    选项卡任务列表容器1,
+                    style="Card.TFrame",
+                    padding=(14, 12),
+                )
+                选项卡任务列表容器1_2.grid(
+                    row=1, column=0, padx=0, pady=(12, 0), sticky="new"
+                )
 
-                tk.Label(选项卡任务列表容器1_2, text="", font=("微软雅黑", 16)).grid(row=0, column=0, sticky=tk.W, )
-                异环游戏静音容器 = ttk.Frame(选项卡任务列表容器1_2)
+                ttk.Label(
+                    选项卡任务列表容器1_2,
+                    text="运行偏好",
+                    style="CardSection.TLabel",
+                ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+                异环游戏静音容器 = ttk.Frame(
+                    选项卡任务列表容器1_2, style="Card.TFrame"
+                )
                 异环游戏静音容器.grid(row=1, column=0, padx=0, pady=0, sticky=tk.W, )
                 异环游戏静音变量=tk.IntVar(value=0)
                 创建复选框grid(current_dir=current_dir, 归属=异环游戏静音容器, 标签="运行任务时游戏静音", 绑定变量=异环游戏静音变量, font=("微软雅黑", 14, "bold",), 位置=0, 位置2=0, 边距x=10, 边距y=0, **复选框基础样式)
                 创建按钮2grid(异环游戏静音容器, "❓", lambda: os.startfile(Path(current_dir / r"UI\帮助说明\游戏静音.png")), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=1, )
-                GPU加速识图容器 = ttk.Frame(选项卡任务列表容器1_2)
+                GPU加速识图容器 = ttk.Frame(
+                    选项卡任务列表容器1_2, style="Card.TFrame"
+                )
                 GPU加速识图容器.grid(row=2, column=0, padx=0, pady=0, sticky=tk.W, )
                 GPU加速识图变量 = tk.IntVar(value=0)
                 创建复选框grid(current_dir=current_dir, 归属=GPU加速识图容器, 标签="GPU加速OpenCV", 绑定变量=GPU加速识图变量, font=("微软雅黑", 14, "bold",), 位置=0, 位置2=0, 边距x=10, 边距y=0, **复选框基础样式)
                 创建按钮2grid(GPU加速识图容器, "❓", lambda 文本="稍微好一点的cpu就不用开启这个了\n识图速度慢，或者想在高频识图任务有更好表现的可以尝试开启\n比如超强音任务": 截图方式提示窗口(文本, 标题="GPU加速OpenCV"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=1, )
 
-                tk.Label(选项卡任务列表容器1_2, text="", font=("微软雅黑", 16)).grid(row=3, column=0, sticky=tk.W, )
+                ttk.Separator(选项卡任务列表容器1_2).grid(
+                    row=3, column=0, sticky="ew", pady=10
+                )
                 from 后台键鼠 import set_process_priority,find_pids_by_exe
                 异环工具优先级配置文件= current_dir.parent / "外置配置文件夹"/"进程优先级.json"
                 if getattr(sys, 'frozen', False):
-                    异环工具路径 = current_dir / "Noki_HBR_Auto.exe"
+                    异环工具路径 = current_dir / "Noki_NTE_Auto.exe"
                 else:
                     异环工具路径 = None  # 非打包环境，不需要操作该 exe
-                异环工具优先级容器 = ttk.Frame(选项卡任务列表容器1_2)
+                异环工具优先级容器 = ttk.Frame(
+                    选项卡任务列表容器1_2, style="Card.TFrame"
+                )
                 异环工具优先级容器.grid(row=4, column=0, padx=0, pady=0)
                 tk.Label(异环工具优先级容器, text="进程优先级:", font=("微软雅黑", 16)).grid(row=0, column=0, sticky=tk.W, )
                 异环工具优先级变量=tk.StringVar(value="正常（默认）")
@@ -3475,28 +3565,62 @@ def 函数主程序():
                 应用初始进程优先级()
 
 
-                异环工具优先级说明容器 = ttk.Frame(选项卡任务列表容器1_2)
-                异环工具优先级说明容器.grid(row=4, column=0, padx=0, pady=0)
+                异环工具优先级说明容器 = ttk.Frame(
+                    选项卡任务列表容器1_2, style="Card.TFrame"
+                )
+                异环工具优先级说明容器.grid(row=5, column=0, padx=0, pady=0)
 
-                选项卡任务列表中间容器 = ttk.Frame(选项卡任务列表)
-                选项卡任务列表中间容器.grid(row=0, column=1, padx=0, pady=0, sticky=tk.N)
+                选项卡任务列表中间容器 = ttk.Frame(
+                    选项卡任务列表,
+                    style="Card.TFrame",
+                    padding=(18, 16),
+                )
+                选项卡任务列表中间容器.grid(
+                    row=0, column=1, padx=(12, 0), pady=0, sticky="new"
+                )
+                选项卡任务列表中间容器.columnconfigure(0, weight=1)
 
-                tk.Label(选项卡任务列表中间容器, text=
-                "工具免费\n如果是付费购买\n请要求商家退款\n并帮忙举报倒卖", font=("楷体", 14, "bold", ), fg="red").grid(row=12, column=1, )
-
-                tk.Label(选项卡任务列表中间容器, text=
-                "\n\n点击查看工具演示\n"
-                    "↓↓↓↓↓↓↓", font=("楷体", 14, "bold"), fg="blue").grid(row=13, column=1,)
-
-                创建按钮2grid(选项卡任务列表中间容器, "演示视频", lambda: 执行器.提交任务(打开异环演示视频, 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=14, 位置2=1)
-                tk.Label(选项卡任务列表中间容器, text=
-                "↑↑↑↑↑↑↑\n\n有问题来视频留言\n或者b站私信", font=("楷体", 14, "bold"), fg="green").grid(row=15, column=1, )
-
-                tk.Label(选项卡任务列表中间容器, text="\n\u3000\u3000\u30002.请关闭性能监控浮窗，会影响画面\u3000\u3000\u3000", font=("楷体", 13, "bold", "italic"), fg="blue").grid(row=15+2, column=1, )
-                tk.Label(选项卡任务列表中间容器, text="\n3.关闭游戏和显卡驱动插帧，\nAMD显卡请关闭FSR等相关功能", font=("楷体", 13, "bold", "italic"), fg="blue").grid(row=15 + 3, column=1, )
-
-                tk.Label(选项卡任务列表中间容器, text="\n\n\n在运行有图像识别的任务时：\n\n1.请关闭所有影响游戏画面显示的\nHDR,滤镜，护眼模式，色彩增强等等", font=("楷体", 13, "bold", "italic"), fg="blue").grid(row=15+1, column=1, )
+                ttk.Label(
+                    选项卡任务列表中间容器,
+                    text="使用前检查",
+                    style="CardSection.TLabel",
+                ).grid(row=0, column=0, sticky="w")
+                ttk.Label(
+                    选项卡任务列表中间容器,
+                    text=(
+                        "运行图像识别任务前，请确认：\n\n"
+                        "• 关闭 HDR、滤镜、护眼模式和色彩增强\n"
+                        "• 关闭性能监控浮窗，避免遮挡游戏画面\n"
+                        "• 关闭游戏与显卡驱动插帧\n"
+                        "• AMD 显卡建议关闭 FSR 等画面处理"
+                    ),
+                    style="CardMuted.TLabel",
+                    justify="left",
+                ).grid(row=1, column=0, sticky="w", pady=(10, 14))
+                ttk.Separator(选项卡任务列表中间容器).grid(
+                    row=2, column=0, sticky="ew", pady=(0, 12)
+                )
+                ttk.Label(
+                    选项卡任务列表中间容器,
+                    text="工具永久免费，禁止倒卖。",
+                    style="CardSection.TLabel",
+                ).grid(row=3, column=0, sticky="w")
+                ttk.Label(
+                    选项卡任务列表中间容器,
+                    text="如遇到问题，可先对照演示视频检查运行环境。",
+                    style="CardMuted.TLabel",
+                ).grid(row=4, column=0, sticky="w", pady=(5, 10))
+                创建按钮2grid(
+                    选项卡任务列表中间容器,
+                    "查看演示视频",
+                    lambda: 执行器.提交任务(打开异环演示视频, 异步=False),
+                    字体配置=("微软雅黑", 小功能按钮字体),
+                    width=小功能按钮长度,
+                    height=1,
+                    位置=5,
+                    位置2=0,
+                    style="Primary.TButton",
+                )
 
                 任务1选择变量 = tk.StringVar(value="自动战斗")
                 任务2选择变量 = tk.StringVar(value="自动跳过剧情")
@@ -3562,18 +3686,17 @@ def 函数主程序():
                         选择变量 = 任务4选择变量
 
                     子容器 = ttk.LabelFrame(父容器,text=f"任务{任务编号}")
-                    if 任务编号 in [1,3]:
-                        子容器padx=(0,100)
-                    else:
-                        子容器padx = 0
-                    if 任务编号 in [1,2]:
-                        子容器pady=(0,100)
-                    else:
-                        子容器pady = 0
-                    子容器.grid(row=行, column=列, pady=子容器pady, padx=子容器padx,sticky="w")
-                    文本容器 = ttk.Frame(子容器)
-                    文本容器.grid(row=0, column=0, pady=10, sticky="w")
-                    容器 = ttk.Frame(文本容器)
+                    子容器.grid(
+                        row=行,
+                        column=列,
+                        pady=8,
+                        padx=8,
+                        sticky="nsew",
+                    )
+                    父容器.columnconfigure(列, weight=1)
+                    文本容器 = ttk.Frame(子容器, style="Card.TFrame")
+                    文本容器.grid(row=0, column=0, pady=4, sticky="nsew")
+                    容器 = ttk.Frame(文本容器, style="Card.TFrame")
                     容器.grid(row=0, column=0, pady=10, sticky="w")
 
                     tk.Label(容器, text=f"任务{任务编号}选择:", font=("微软雅黑", 16)).grid(row=0, column=0, sticky=tk.W)
@@ -3713,7 +3836,6 @@ def 函数主程序():
 
                     选择变量.trace_add("write", 任务切换回调)
 
-                    tk.Label(文本容器, text=热键提示文本, font=("微软雅黑", 14)).grid(row=99, column=0, sticky=tk.W)
                     tk.Label(文本容器, text=热键提示文本, font=("微软雅黑", 14)).grid(row=99, column=0, sticky=tk.W)
 
                     # 新增：任务状态标签 (row=98，放在热键提示上方)
@@ -3966,13 +4088,16 @@ def 函数主程序():
     threading.Thread(target=刷新端口列表2,
                      args=()).start()
     window.update_idletasks()
+    polish_legacy_widgets(window)
+    # 部分任务详情会在后台线程注册后补充控件，再做一次轻量外观整理。
+    window.after(350, lambda: polish_legacy_widgets(window))
     window.deiconify()  # 显示窗口
 
     window.mainloop()
 
-
 if __name__ == "__main__":
-    if ctypes.windll.shell32.IsUserAnAdmin() == 0:
+    开发环境跳过管理员检查 = os.environ.get("NOKI_DEV_SKIP_ADMIN", "") == "1"
+    if not 开发环境跳过管理员检查 and ctypes.windll.shell32.IsUserAnAdmin() == 0:
         ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, __file__, None, 1)
         sys.exit()
     函数主程序()

@@ -25,6 +25,16 @@ void UpdateProgress(int percentage, const std::wstring& message);
 bool IsRunningAsAdmin();
 bool RestartAsAdmin();
 
+bool ShouldSkipAdminForDev() {
+    wchar_t value[8] = {};
+    DWORD length = GetEnvironmentVariableW(
+        L"NOKI_DEV_SKIP_ADMIN",
+        value,
+        ARRAYSIZE(value)
+    );
+    return length == 1 && value[0] == L'1';
+}
+
 bool IsRunningAsAdmin() {
     BOOL isAdmin = FALSE;
     PSID adminGroup = NULL;
@@ -72,7 +82,7 @@ void checkAndLaunch(HWND hwnd) {
     GetModuleFileNameW(NULL, current_path, MAX_PATH);
     fs::path current_dir = fs::path(current_path).parent_path();
 
-    fs::path exe_path = current_dir / "dist" / "Noki_HBR_Auto.exe";
+    fs::path exe_path = current_dir / "dist" / "Noki_NTE_Auto.exe";
 
     try {
         UpdateProgress(10, L"正在初始化...");
@@ -254,7 +264,7 @@ HWND CreateMainWindow(HINSTANCE hInstance) {
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 
-    if (!IsRunningAsAdmin()) {
+    if (!ShouldSkipAdminForDev() && !IsRunningAsAdmin()) {
 
         if (RestartAsAdmin()) {
             return 0; 
