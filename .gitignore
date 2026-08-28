@@ -1,0 +1,52 @@
+# Python cache / test artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and release outputs
+build/
+dist/
+release/
+*.spec
+
+# Native compiler intermediates
+*.obj
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.idb
+*.tlog
+*.lastbuildstate
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*
+*.tags
+
+# IDE settings
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Operating system files
+Thumbs.db
+Desktop.ini
+.DS_Store
