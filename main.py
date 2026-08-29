@@ -3394,6 +3394,7 @@ def 函数主程序():
                 def 创建只选择点击方式任务窗口(父容器, 任务名称, 提示文本):
                     文本容器 = ttk.Frame(父容器)
                     文本容器.grid(row=0, column=0, pady=10, sticky="w")
+                    提示文本变量 = tk.StringVar(value=提示文本)
                     文本容器1 = ttk.Frame(文本容器)
                     文本容器1.grid(row=0, column=0, pady=10, sticky="w")
 
@@ -3407,11 +3408,121 @@ def 函数主程序():
                         创建复选框grid(current_dir, 文本容器1, "战斗", 格斗争霸赛战斗变量,
                                      font=("微软雅黑", 16), 位置=0, 位置2=0, 边距x=50, 边距y=20, **复选框基础样式)
 
+                    九百九十九路线变量 = None
+                    九百九十九路线配置 = None
+                    九百九十九图片标签 = None
+                    if 任务名称 == "九九九夜刷纽扣等级":
+                        文本容器1 = ttk.Frame(文本容器)
+                        文本容器1.grid(row=1, column=0, pady=10, sticky="w")
+                        tk.Label(文本容器1, text="路线选择：", font=("微软雅黑", 16)).grid(row=0, column=0, sticky="w")
+                        九百九十九路线变量 = tk.StringVar(value="前期-牛奶雪冰山")
+                        九百九十九路线列表 = [
+                            "前期-牛奶雪冰山",
+                            "中期-古堡刷装备",
+                            "后期-真红刷纽扣",
+                        ]
+                        九百九十九路线说明 = {
+                            "前期-牛奶雪冰山": 提示文本,
+                            "中期-古堡刷装备": "打开地图并调整到图片所示位置后启动。\n作用是刷暗金装备。",
+                            "后期-真红刷纽扣": "打开地图并调整到图片所示位置后启动。\n作用是刷纽扣。\n真红的回火和暗影是必要装备。\n该模式非常消耗系统资源，请尽量开低配置，但是请把视距开到极致。",
+                        }
+                        九百九十九路线下拉框 = ttk.Combobox(
+                            文本容器1,
+                            textvariable=九百九十九路线变量,
+                            values=九百九十九路线列表,
+                            state="readonly",
+                            width=22,
+                            font=("楷体", 16, "bold"),
+                        )
+                        九百九十九路线下拉框.grid(row=0, column=1, sticky="w")
+
+                        九百九十九后期刷新配置容器 = ttk.LabelFrame(
+                            文本容器,
+                            text="后期路线设置",
+                        )
+                        九百九十九后期刷新时间限制变量 = tk.StringVar(value="80")
+                        tk.Label(
+                            九百九十九后期刷新配置容器,
+                            text="刷新时间限制（秒）：",
+                            font=("微软雅黑", 14),
+                        ).grid(row=0, column=0, padx=(8, 0), pady=6, sticky="w")
+                        ttk.Entry(
+                            九百九十九后期刷新配置容器,
+                            textvariable=九百九十九后期刷新时间限制变量,
+                            width=7,
+                            font=("微软雅黑", 14),
+                        ).grid(row=0, column=1, padx=(0, 8), pady=6, sticky="w")
+                        tk.Label(
+                            九百九十九后期刷新配置容器,
+                            text="由于地图炮太卡会引发时间膨胀，刷新时间并不是现实60s。",
+                            font=("微软雅黑", 12),
+                            fg="gray",
+                        ).grid(row=1, column=0, columnspan=2, padx=8, pady=(0, 6), sticky="w")
+
+                        def 更新九百九十九路线说明(event=None):
+                            当前路线 = 九百九十九路线变量.get()
+                            if 当前路线 == "后期-真红刷纽扣":
+                                九百九十九后期刷新配置容器.grid(
+                                    row=2, column=0, pady=(0, 10), sticky="w"
+                                )
+                            else:
+                                九百九十九后期刷新配置容器.grid_remove()
+                            提示文本变量.set(
+                                九百九十九路线说明.get(
+                                    当前路线,
+                                    f"【占位】{当前路线}路线说明待补充。",
+                                )
+                            )
+                            if 九百九十九图片标签 is not None:
+                                图片路线名称 = (
+                                    "中期-城堡刷装备"
+                                    if 当前路线 == "中期-古堡刷装备"
+                                    else 当前路线
+                                )
+                                图片路径 = current_dir / "异环图片" / "999" / 图片路线名称 / "任务启动地点.png"
+                                if 图片路径.exists():
+                                    原始图片 = Image.open(图片路径)
+                                    宽, 高 = 原始图片.size
+                                    缩放后图片 = 原始图片.resize(
+                                        (int(宽 * 0.75), int(高 * 0.75)),
+                                        Image.Resampling.LANCZOS,
+                                    )
+                                    图片对象 = ImageTk.PhotoImage(缩放后图片)
+                                    九百九十九图片标签.configure(image=图片对象, text="")
+                                    九百九十九图片标签.image = 图片对象
+                                else:
+                                    九百九十九图片标签.configure(
+                                        image="",
+                                        text=f"【占位】{当前路线}尚未提供任务启动地点图片。",
+                                    )
+                                    九百九十九图片标签.image = None
+
+                        九百九十九路线下拉框.bind(
+                            "<<ComboboxSelected>>",
+                            更新九百九十九路线说明,
+                        )
+                        九百九十九路线配置 = {
+                            "九百九十九路线变量": 九百九十九路线变量,
+                            "后期刷新时间限制": 九百九十九后期刷新时间限制变量,
+                        }
+                        管理设置(
+                            '加载',
+                            current_dir.parent / "外置配置文件夹" / "异环999设置.json",
+                            九百九十九路线配置,
+                        )
+                        更新九百九十九路线说明()
+
                     文本容器1 = ttk.Frame(文本容器)
-                    文本容器1.grid(row=2, column=0, pady=10, sticky="w")
+                    文本容器1.grid(row=3, column=0, pady=10, sticky="w")
                     配置字典={"赛车鼠标选择变量": 赛车鼠标选择变量,"格斗争霸赛战斗变量": 格斗争霸赛战斗变量,}
                     def 启动任务():
                         管理设置('保存', current_dir.parent / "外置配置文件夹" / "异环挂机赛车.json", 配置字典)
+                        if 九百九十九路线配置 is not None:
+                            管理设置(
+                                '保存',
+                                current_dir.parent / "外置配置文件夹" / "异环999设置.json",
+                                九百九十九路线配置,
+                            )
                         新方式集合启动任务(任务名称)
 
                     创建按钮2grid(文本容器1, f"启动任务", 启动任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=1, 位置2=0)
@@ -3419,14 +3530,14 @@ def 函数主程序():
 
                     文本容器1 = ttk.Frame(文本容器)
                     文本容器1.grid(row=99, column=0, pady=10, sticky="w")
-                    tk.Label(文本容器1, text=提示文本,
+                    tk.Label(文本容器1, textvariable=提示文本变量,
                              font=("楷体", 16, "bold", "italic"), fg="blue").grid(row=2, column=0, sticky="w")
-                    if 任务名称 == "九九九夜刷纽扣等级" or 任务名称 == "渔获大作战":
-                        if 任务名称 == "九九九夜刷纽扣等级":
-                            图片路径 = Path(rf"{current_dir}\异环图片\999\任务启动地点.png")
-                        elif 任务名称 == "渔获大作战":
-
-                            图片路径 = Path(rf"{current_dir}\异环图片\渔获大作战\活动_1280x720.png")
+                    if 任务名称 == "九九九夜刷纽扣等级":
+                        九百九十九图片标签 = tk.Label(文本容器1)
+                        九百九十九图片标签.grid(row=3, column=0, sticky="w")
+                        更新九百九十九路线说明()
+                    elif 任务名称 == "渔获大作战":
+                        图片路径 = Path(rf"{current_dir}\异环图片\渔获大作战\活动_1280x720.png")
                         原始图片 = Image.open(图片路径)
                         宽, 高 = 原始图片.size
                         缩放后图片 = 原始图片.resize((int(宽 * 0.75), int(高 * 0.75)), Image.Resampling.LANCZOS)
