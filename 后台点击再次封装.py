@@ -1,5 +1,5 @@
-from 游戏截图保存到内存 import 获取_png_data
-from opencv模板匹配找图 import 函数_在指定区域内进行模板匹配,函数_在指定区域内进行内存图片匹配,函数_在指定区域内进行模板匹配多
+from 游戏截图保存到内存 import 获取_png_data, 函数截图到内存直接返回NumPy数组
+from opencv模板匹配找图 import 函数_在指定区域内进行模板匹配, 函数_在指定区域内进行内存图片匹配, 函数_在指定区域内进行模板匹配多, 函数_在指定区域数组匹配
 from adb操作 import 长按,滑动
 import time
 import threading
@@ -10,6 +10,7 @@ import win32api
 from pathlib import Path
 import cv2
 import numpy as np
+import queue
 logger = logging.getLogger("database")
 from 后台键鼠 import 真实鼠标坐标后台点击专用, PyAutoGUI_模拟按键按下, PyAutoGUI_模拟按键弹起, 模拟按键长按, PyAutoGUI_模拟鼠标左键单击
 from 睡眠倍数模块 import 可变速等待
@@ -74,8 +75,91 @@ def adjust_expanded_region(original_region, image_width=1280, image_height=720, 
 
     return expanded_x, expanded_y, expanded_width, expanded_height
 
+class 队列点击执行器:
+    """单线程顺序执行点击任务的执行器（支持顶级优先）"""
+    def __init__(self):
+        self.任务队列 = queue.Queue()           # 普通任务队列
+        self.顶级任务队列 = queue.Queue()       # 顶级任务队列
+        self.执行线程 = threading.Thread(target=self._执行循环, daemon=True)
+        self.执行线程.start()
 
-# 使用示例
+    # ---------- 普通提交（原有方法不变） ----------
+    def 添加后台点击任务(self, 句柄, 矩形, 坐标, 延时, 等待, 鼠标回弹=True):
+        """将后台点击任务加入普通队列"""
+        任务 = ('后台', (句柄, 矩形, 坐标, 延时, 等待, 鼠标回弹))
+        self.任务队列.put(任务)
+
+    def 添加前台点击任务(self, x, y, 点击时间):
+        """将前台点击任务加入普通队列"""
+        任务 = ('前台', (x, y, 点击时间))
+        self.任务队列.put(任务)
+
+    # ---------- 顶级提交 ----------
+    def 添加顶级后台点击任务(self, 句柄, 矩形, 坐标, 延时, 等待, 鼠标回弹=True):
+        """顶级提交：清空普通队列，将此后台点击任务加入顶级队列"""
+        self._清空普通队列并唤醒()
+        任务 = ('后台', (句柄, 矩形, 坐标, 延时, 等待, 鼠标回弹))
+        self.顶级任务队列.put(任务)
+
+    def 添加顶级前台点击任务(self, x, y, 点击时间):
+        """顶级提交：清空普通队列，将此前台点击任务加入顶级队列"""
+        self._清空普通队列并唤醒()
+        任务 = ('前台', (x, y, 点击时间))
+        self.顶级任务队列.put(任务)
+
+    def _清空普通队列并唤醒(self):
+        """丢弃普通队列中的所有任务，并放入唤醒标记"""
+        # 清空所有待处理任务
+        while not self.任务队列.empty():
+            try:
+                self.任务队列.get_nowait()
+                self.任务队列.task_done()   # 维护计数器，避免 join 死锁
+            except queue.Empty:
+                break
+        # 放入内部唤醒标记，让可能阻塞在 get() 的执行线程立即返回
+        self.任务队列.put(('内部唤醒', None))
+
+    # ---------- 执行循环 ----------
+    def _执行循环(self):
+        """执行线程的主循环，优先处理顶级任务"""
+        while True:
+            try:
+                # 1. 优先尝试从顶级队列获取任务（非阻塞）
+                try:
+                    任务类型, 参数 = self.顶级任务队列.get_nowait()
+                    来源队列 = self.顶级任务队列
+                except queue.Empty:
+                    # 2. 顶级队列为空时，才从普通队列获取（阻塞等待）
+                    任务类型, 参数 = self.任务队列.get()
+                    来源队列 = self.任务队列
+
+                # 3. 处理内部唤醒标记
+                if 任务类型 == '内部唤醒':
+                    continue   # 直接回到循环开头，重新检查顶级队列
+
+                # 4. 执行真实任务
+                if 任务类型 == '后台':
+                    句柄, 矩形, 坐标, 延时, 等待, 鼠标回弹 = 参数
+                    真实鼠标坐标后台点击专用(句柄, 矩形, 坐标, 延时, 等待, 鼠标回弹)
+                elif 任务类型 == '前台':
+                    x, y, 点击时间 = 参数
+                    PyAutoGUI_模拟鼠标左键单击(x, y, 点击时间)
+                else:
+                    print(f"未知任务类型: {任务类型}")
+
+            except Exception as e:
+                print(f"执行器异常: {e}")
+            finally:
+                # 标记对应队列的任务完成（唤醒标记同样会调用，保持计数准确）
+                来源队列.task_done()
+
+    def 等待所有任务完成(self):
+        """阻塞当前线程，直到所有队列（顶级+普通）中的任务执行完毕"""
+        self.顶级任务队列.join()
+        self.任务队列.join()
+
+点击执行器 = 队列点击执行器()
+
 def check_and_expand_region(original_region, image_width=1280, image_height=720):
     """
     检查原始区域是否有效，然后扩大区域
@@ -286,28 +370,27 @@ def 持续x除以y秒点击一个位置直到画面变化(位置,adb路径,x,y,�
                 break
             是否匹配2 = True
     return 是否匹配2
-def 持续x除以y秒图未出现则点击一个位置(位置,adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=False):
-    """
-    循环点一个位置直到图片出现
-    :param adb路径:
-    :param y:
-    :param 模板路径:
-    :param 限定区域:
-    :param 最低相似度:
-    :param 线程事件:
-    :param 位置: 元组
-    :param x: 循环的次数，循环的延时为 y 秒
-    :return: 是否出现结果
-    """
+def 持续x除以y秒图未出现则点击一个位置(位置,adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=False,配置列表=None, 鼠标等待=0.5,鼠标回弹=True,共享截图=None,基础延迟=0.001):
     无用, 端口, hwnd, 窗口矩形, (PC全局延迟, PC键盘延迟) = adb路径
     失败再延迟 = 0
     是否匹配2=False
     for _ in range(x):
         if not 判断线程与值的布尔函数(线程事件):
             return False
-        可变速等待(y+失败再延迟*20)
-        png数据 = 获取_png_data(adb路径)
-        是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据,限定区域,模板路径,最低相似度)
+
+        if 配置列表:
+            if 共享截图 is not None:
+                锁, 容器 = 共享截图
+                with 锁:
+                    png数据1 = 容器[0]
+            else:
+                png数据1 = 函数截图到内存直接返回NumPy数组(hwnd, 窗口矩形)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域数组匹配(
+                背景图片=png数据1, 限定区域=限定区域, 最低相似度=最低相似度,
+                配置列表=配置列表)
+        else:
+            png数据1 = 获取_png_data(adb路径)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据1, 限定区域, 模板路径, 最低相似度)
         if 是否匹配:
             if 是否匹配2:
                 break
@@ -318,52 +401,61 @@ def 持续x除以y秒图未出现则点击一个位置(位置,adb路径,x,y,模�
 
                     if not 判断线程与值的布尔函数(线程事件):
                         break  # 如果事件对象被清除，退出循环
-                    当前活动窗口 = win32gui.GetForegroundWindow()
-                    键 = "alt"
-                    for _ in range(50):
-                        if not 判断线程与值的布尔函数(线程事件):
-                            break  # 如果事件对象被清除，退出循环
-                        time.sleep(0.05 + PC键盘延迟)
-                        当前窗口 = win32gui.GetForegroundWindow()
-                        if 当前窗口 == hwnd:
-
-                            PyAutoGUI_模拟按键按下(键)
-                            time.sleep(0.075 + PC键盘延迟)
-                            PyAutoGUI_模拟按键弹起(键)
-                            time.sleep(0.5)
-                            PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟)
-                            time.sleep(0.5)
-                            break
-                        else:
-                            try:
-                                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                                win32gui.SetForegroundWindow(hwnd)
-                            except Exception:
+                    if 鼠标回弹:
+                        当前活动窗口 = win32gui.GetForegroundWindow()
+                        键 = "alt"
+                        for _ in range(50):
+                            if not 判断线程与值的布尔函数(线程事件):
+                                break  # 如果事件对象被清除，退出循环
+                            time.sleep(0.05 + PC键盘延迟)
+                            当前窗口 = win32gui.GetForegroundWindow()
+                            if 当前窗口 == hwnd:
 
                                 PyAutoGUI_模拟按键按下(键)
                                 time.sleep(0.075 + PC键盘延迟)
+
+                                time.sleep(鼠标等待)
+                                PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟+基础延迟)
+                                time.sleep(鼠标等待)
                                 PyAutoGUI_模拟按键弹起(键)
-                                time.sleep(0.5)
-                                PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟)
-                                time.sleep(0.5)
-                    for _ in range(50):
-                        if not 判断线程与值的布尔函数(线程事件):
-                            break  # 如果事件对象被清除，退出循环
-                        try:
-                            win32gui.ShowWindow(当前活动窗口, win32con.SW_RESTORE)
-                            win32gui.SetForegroundWindow(当前活动窗口)
-                        except Exception:
-                            pass
-                        当前窗口 = win32gui.GetForegroundWindow()
-                        if 当前窗口 == 当前活动窗口:
-                            break
-                        time.sleep(0.05 + PC键盘延迟)
+                                break
+                            else:
+                                try:
+                                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                    win32gui.SetForegroundWindow(hwnd)
+                                except Exception:
+
+                                    PyAutoGUI_模拟按键按下(键)
+                                    time.sleep(0.075 + PC键盘延迟)
+                                    PyAutoGUI_模拟按键弹起(键)
+                                    time.sleep(鼠标等待)
+                                    PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟+基础延迟)
+                                    time.sleep(鼠标等待)
+                                    PyAutoGUI_模拟按键弹起(键)
+                        for _ in range(50):
+                            if not 判断线程与值的布尔函数(线程事件):
+                                break  # 如果事件对象被清除，退出循环
+                            try:
+                                win32gui.ShowWindow(当前活动窗口, win32con.SW_RESTORE)
+                                win32gui.SetForegroundWindow(当前活动窗口)
+                            except Exception:
+                                pass
+                            当前窗口 = win32gui.GetForegroundWindow()
+                            if 当前窗口 == 当前活动窗口:
+                                break
+                            time.sleep(0.05 + PC键盘延迟)
+                    else:
+                        点击执行器.添加前台点击任务(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + PC全局延迟 + 失败再延迟)
+                        time.sleep(0.05 + PC全局延迟 + 失败再延迟)
                 else:
-                    真实鼠标坐标后台点击专用(hwnd, 窗口矩形, (位置[0], 位置[1]),
-                                          PC全局延迟 + 失败再延迟, 0.5)
+                    点击执行器.添加后台点击任务(hwnd, 窗口矩形, (位置[0], 位置[1]),
+                                          PC全局延迟 + 失败再延迟, 鼠标等待,鼠标回弹=鼠标回弹)
+                    time.sleep(PC全局延迟 + 失败再延迟+鼠标等待)
                 失败再延迟 = 失败再延迟 + 0.01
             else:
                 长按(adb路径, 位置[0], 位置[1], 持续时间=100+ int(失败再延迟*1000))
+
+        可变速等待(y)
     return 是否匹配2
 
 def 多图匹配_图未出现则点击一个位置(位置,adb路径,x,y,匹配列表,匹配字符,线程事件=1):
@@ -521,7 +613,7 @@ def 持续x除以y秒图未出现且图片未变化则点击一个位置(位置,
             else:
                 长按(adb路径, 位置[0], 位置[1], 持续时间=100+ int(失败再延迟*1000))
     return 是否匹配2
-def 持续x除以y秒图存在则点击一个位置(位置,adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=False):
+def 持续x除以y秒图存在则点击一个位置(位置,adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=False,配置列表=None, 鼠标等待=0.5,鼠标回弹=True,共享截图=None,基础延迟=0.001):
     """
     循环点一个位置直到图片消失
     :param adb路径:
@@ -540,58 +632,77 @@ def 持续x除以y秒图存在则点击一个位置(位置,adb路径,x,y,模板�
         if not 判断线程与值的布尔函数(线程事件):
             return False
         可变速等待(y+失败再延迟*20)
-        png数据 = 获取_png_data(adb路径)
-        是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据,限定区域,模板路径,最低相似度)
+        if 配置列表:
+            if 共享截图 is not None:
+                锁, 容器 = 共享截图
+                with 锁:
+                    png数据1 = 容器[0]
+            else:
+                png数据1 = 函数截图到内存直接返回NumPy数组(hwnd, 窗口矩形)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域数组匹配(
+                背景图片=png数据1, 限定区域=限定区域, 最低相似度=最低相似度,
+                配置列表=配置列表)
+        else:
+            png数据1 = 获取_png_data(adb路径)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据1, 限定区域, 模板路径, 最低相似度)
         if 是否匹配:
             是否匹配2 = 1
             if 窗口矩形:
                 if 真实鼠标:
+
                     if not 判断线程与值的布尔函数(线程事件):
                         break  # 如果事件对象被清除，退出循环
-                    当前活动窗口 = win32gui.GetForegroundWindow()
-                    键="alt"
-                    for _ in range(50):
-                        if not 判断线程与值的布尔函数(线程事件):
-                            break  # 如果事件对象被清除，退出循环
-                        time.sleep(0.05 + PC键盘延迟)
-                        当前窗口 = win32gui.GetForegroundWindow()
-                        if 当前窗口 == hwnd:
-
-                            PyAutoGUI_模拟按键按下(键)
-                            time.sleep(0.075 + PC键盘延迟)
-                            PyAutoGUI_模拟按键弹起(键)
-                            time.sleep(0.5)
-                            PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟)
-                            time.sleep(0.5)
-                            break
-                        else:
-                            try:
-                                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                                win32gui.SetForegroundWindow(hwnd)
-                            except Exception:
+                    if 鼠标回弹:
+                        当前活动窗口 = win32gui.GetForegroundWindow()
+                        键 = "alt"
+                        for _ in range(50):
+                            if not 判断线程与值的布尔函数(线程事件):
+                                break  # 如果事件对象被清除，退出循环
+                            time.sleep(0.05 + PC键盘延迟)
+                            当前窗口 = win32gui.GetForegroundWindow()
+                            if 当前窗口 == hwnd:
 
                                 PyAutoGUI_模拟按键按下(键)
                                 time.sleep(0.075 + PC键盘延迟)
+
+                                time.sleep(鼠标等待)
+                                PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟 + 基础延迟)
+                                time.sleep(鼠标等待)
                                 PyAutoGUI_模拟按键弹起(键)
-                                time.sleep(0.5)
-                                PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟)
-                                time.sleep(0.5)
-                    for _ in range(50):
-                        if not 判断线程与值的布尔函数(线程事件):
-                            break  # 如果事件对象被清除，退出循环
-                        try:
-                            win32gui.ShowWindow(当前活动窗口, win32con.SW_RESTORE)
-                            win32gui.SetForegroundWindow(当前活动窗口)
-                        except Exception:
-                            pass
-                        当前窗口 = win32gui.GetForegroundWindow()
-                        if 当前窗口 == 当前活动窗口:
-                            break
-                        time.sleep(0.05 + PC键盘延迟)
+                                break
+                            else:
+                                try:
+                                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                    win32gui.SetForegroundWindow(hwnd)
+                                except Exception:
+
+                                    PyAutoGUI_模拟按键按下(键)
+                                    time.sleep(0.075 + PC键盘延迟)
+                                    PyAutoGUI_模拟按键弹起(键)
+                                    time.sleep(鼠标等待)
+                                    PyAutoGUI_模拟鼠标左键单击(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + 失败再延迟 + 基础延迟)
+                                    time.sleep(鼠标等待)
+                                    PyAutoGUI_模拟按键弹起(键)
+                        for _ in range(50):
+                            if not 判断线程与值的布尔函数(线程事件):
+                                break  # 如果事件对象被清除，退出循环
+                            try:
+                                win32gui.ShowWindow(当前活动窗口, win32con.SW_RESTORE)
+                                win32gui.SetForegroundWindow(当前活动窗口)
+                            except Exception:
+                                pass
+                            当前窗口 = win32gui.GetForegroundWindow()
+                            if 当前窗口 == 当前活动窗口:
+                                break
+                            time.sleep(0.05 + PC键盘延迟)
+                    else:
+                        点击执行器.添加前台点击任务(位置[0] + 窗口矩形[0], 位置[1] + 窗口矩形[1], 0.05 + PC全局延迟 + 失败再延迟)
+                        time.sleep(0.05 + PC全局延迟 + 失败再延迟)
                 else:
-                    真实鼠标坐标后台点击专用(hwnd, 窗口矩形, (位置[0], 位置[1]),
-                                          PC全局延迟 + 失败再延迟, 0.5)
-                失败再延迟 = 失败再延迟 + 0.009
+                    点击执行器.添加后台点击任务(hwnd, 窗口矩形, (位置[0], 位置[1]),
+                                                PC全局延迟 + 失败再延迟, 鼠标等待, 鼠标回弹=鼠标回弹)
+                    time.sleep(PC全局延迟 + 失败再延迟 + 鼠标等待)
+                失败再延迟 = 失败再延迟 + 0.01
             else:
                 长按(adb路径, 最大匹配x坐标, 最大匹配y坐标, 持续时间=100+ int(失败再延迟*1000))
         else:
@@ -600,7 +711,185 @@ def 持续x除以y秒图存在则点击一个位置(位置,adb路径,x,y,模板�
             if 是否匹配2==1:
                 是否匹配2 = 2
     return False
-def 持续x除以y秒点击一个图片并且失败增加时长(adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=False):
+def 持续x除以y秒按键一个图片并且失败增加时长(adb路径,x,y,按键码,模板路径,限定区域,最低相似度,线程事件=1,配置列表=None, 共享截图=None):
+    """
+        循环点一个图片到图片消失出现
+        :param adb路径:
+        :param y:
+        :param 按键码:
+        :param 模板路径:
+        :param 限定区域:
+        :param 最低相似度:
+        :param 线程事件:
+        :param x: 循环的次数，循环的延时为 y 秒
+        :return: 是否出现结果
+        """
+    无用, 端口, hwnd, 窗口矩形, (_, _) = adb路径
+    失败再延迟 = 0
+    是否匹配2=False
+
+    for _ in range(x):
+        if not 判断线程与值的布尔函数(线程事件):
+            return False
+
+        if 配置列表:
+            if 共享截图 is not None:
+                锁, 容器 = 共享截图
+                with 锁:
+                    png数据1 = 容器[0]
+            else:
+                png数据1 = 函数截图到内存直接返回NumPy数组(hwnd, 窗口矩形)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域数组匹配(
+                背景图片=png数据1, 限定区域=限定区域, 最低相似度=最低相似度,
+                配置列表=配置列表)
+        else:
+            png数据1 = 获取_png_data(adb路径)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据1, 限定区域, 模板路径, 最低相似度)
+        if 是否匹配:
+            是否匹配2 =True
+
+            模拟按键长按(hwnd, 按键码,0.01 + 失败再延迟)
+            失败再延迟 = 失败再延迟 + 0.009
+
+            可变速等待(1)
+        else:
+            if 是否匹配2:
+                break
+        可变速等待(y)
+    return 是否匹配2
+def 持续x除以y秒按键到图出现(按键码,adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,配置列表=None, 共享截图=None):
+    """
+    循环点一个位置直到图片出现
+    :param adb路径:
+    :param y:
+    :param 模板路径:
+    :param 限定区域:
+    :param 最低相似度:
+    :param 线程事件:
+    :param 位置: 元组
+    :param x: 循环的次数，循环的延时为 y 秒
+    :return: 是否出现结果
+    """
+    无用, 端口, hwnd, 窗口矩形, (PC全局延迟, PC键盘延迟) = adb路径
+    失败再延迟 = 0
+    是否匹配2=False
+    for _ in range(x):
+        if not 判断线程与值的布尔函数(线程事件):
+            return False
+
+        if 配置列表:
+            if 共享截图 is not None:
+                锁, 容器 = 共享截图
+                with 锁:
+                    png数据1 = 容器[0]
+            else:
+                png数据1 = 函数截图到内存直接返回NumPy数组(hwnd, 窗口矩形)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域数组匹配(
+                背景图片=png数据1, 限定区域=限定区域, 最低相似度=最低相似度,
+                配置列表=配置列表)
+        else:
+            png数据1 = 获取_png_data(adb路径)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据1, 限定区域, 模板路径, 最低相似度)
+        if 是否匹配:
+            if 是否匹配2:
+                break
+            是否匹配2 =True
+        else:
+            if 窗口矩形:
+                模拟按键长按(hwnd, 按键码,0.01 + 失败再延迟)
+                失败再延迟 = 失败再延迟 + 0.01
+            else:
+                长按(adb路径, 位置[0], 位置[1], 持续时间=100+ int(失败再延迟*1000))
+        可变速等待(y + 失败再延迟 * 20)
+    return 是否匹配2
+def 持续x除以y秒点击一个图片并且失败增加时长(adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=True,鼠标等待=0.5,配置列表=None,鼠标回弹=True, 共享截图=None):
+    无用, 端口, hwnd, 窗口矩形, (PC全局延迟, PC键盘延迟) = adb路径
+    失败再延迟 = 0
+    是否匹配2=0
+
+    for _ in range(x):
+        if not 判断线程与值的布尔函数(线程事件):
+            return False
+
+        if 配置列表:
+            if 共享截图 is not None:
+                锁, 容器 = 共享截图
+                with 锁:
+                    png数据1 = 容器[0]
+            else:
+                png数据1 = 函数截图到内存直接返回NumPy数组(hwnd, 窗口矩形)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域数组匹配(
+                背景图片=png数据1, 限定区域=限定区域, 最低相似度=最低相似度,
+                配置列表=配置列表)
+        else:
+            png数据1 = 获取_png_data(adb路径)
+            是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据1,限定区域,模板路径,最低相似度)
+        if 是否匹配:
+            是否匹配2 =-1
+            if 窗口矩形:
+                if 真实鼠标:
+                    if not 判断线程与值的布尔函数(线程事件):
+                        break  # 如果事件对象被清除，退出循环
+                    if 鼠标回弹:
+                        当前活动窗口 = win32gui.GetForegroundWindow()
+                        键 = "alt"
+                        for _ in range(50):
+                            if not 判断线程与值的布尔函数(线程事件):
+                                break  # 如果事件对象被清除，退出循环
+                            time.sleep(0.05 + PC键盘延迟)
+                            当前窗口 = win32gui.GetForegroundWindow()
+                            if 当前窗口 == hwnd:
+
+                                PyAutoGUI_模拟按键按下(键)
+                                time.sleep(0.075 + PC键盘延迟)
+                                PyAutoGUI_模拟按键弹起(键)
+                                time.sleep(鼠标等待)
+                                PyAutoGUI_模拟鼠标左键单击(最大匹配x坐标 + 窗口矩形[0], 最大匹配y坐标 + 窗口矩形[1], 0.05 + 失败再延迟)
+                                time.sleep(鼠标等待)
+                                break
+                            else:
+                                try:
+                                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                    win32gui.SetForegroundWindow(hwnd)
+                                except Exception:
+
+                                    PyAutoGUI_模拟按键按下(键)
+                                    time.sleep(0.075 + PC键盘延迟)
+                                    PyAutoGUI_模拟按键弹起(键)
+                                    time.sleep(鼠标等待)
+                                    PyAutoGUI_模拟鼠标左键单击(最大匹配x坐标 + 窗口矩形[0], 最大匹配y坐标 + 窗口矩形[1], 0.05 + 失败再延迟)
+                                    time.sleep(鼠标等待)
+                        for _ in range(50):
+                            if not 判断线程与值的布尔函数(线程事件):
+                                break  # 如果事件对象被清除，退出循环
+                            try:
+                                win32gui.ShowWindow(当前活动窗口, win32con.SW_RESTORE)
+                                win32gui.SetForegroundWindow(当前活动窗口)
+                            except Exception:
+                                pass
+                            当前窗口 = win32gui.GetForegroundWindow()
+                            if 当前窗口 == 当前活动窗口:
+                                break
+                            time.sleep(0.05 + PC键盘延迟)
+                    else:
+                        点击执行器.添加前台点击任务(最大匹配x坐标 + 窗口矩形[0], 最大匹配y坐标 + 窗口矩形[1], 0.05 + 失败再延迟)
+                else:
+                    点击执行器.添加后台点击任务(hwnd, 窗口矩形, (最大匹配x坐标, 最大匹配y坐标),
+                                          延时=PC全局延迟 + 失败再延迟, 等待=鼠标等待,鼠标回弹=鼠标回弹)
+                失败再延迟 = 失败再延迟 + 0.009
+            else:
+                长按(adb路径, 最大匹配x坐标, 最大匹配y坐标, 持续时间=100+ int(失败再延迟*1000))
+        else:
+
+            if 是否匹配2==-1:
+                是否匹配2=True
+
+                break
+        可变速等待(y)
+    if 是否匹配2==-1:
+        是否匹配2=False
+    return 是否匹配2
+def 持续x除以y秒点击一个图片没钱卖鱼饵专用(adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1,真实鼠标=False,模板路径2=None):
     """
         循环点一个图片到图片消失出现
         :param adb路径:
@@ -619,8 +908,17 @@ def 持续x除以y秒点击一个图片并且失败增加时长(adb路径,x,y,�
     for _ in range(x):
         if not 判断线程与值的布尔函数(线程事件):
             return False
-        可变速等待(y)
-        png数据 = 获取_png_data(adb路径)
+        开始时间=time.time()
+        while time.time()-开始时间<y:
+            png数据 = 获取_png_data(adb路径)
+            if 模板路径2:
+                是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据, (498, 299, 282, 120), 模板路径2, 最低相似度)
+                if 是否匹配:
+                    return 模板路径2
+            time.sleep(0.05)
+        else:
+            png数据 = 获取_png_data(adb路径)
+
         是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据,限定区域,模板路径,最低相似度)
         if 是否匹配:
             是否匹配2 =True
@@ -678,8 +976,8 @@ def 持续x除以y秒点击一个图片并且失败增加时长(adb路径,x,y,�
         else:
             if 是否匹配2:
                 break
-    return 是否匹配2
 
+    return 是否匹配2
 def 多图匹配_点击一个图片(adb路径,x,y,匹配列表,匹配字符,线程事件=1):
     """
     循环点一个位置直到图片出现
@@ -1027,74 +1325,7 @@ def pc端移动是否按f(键,是否,adb路径,current_dir,持续时间,线程�
         else:
             滑动(adb路径, x1, 360, x2, 360, 持续时间=持续时间*1000)
 
-def 持续x除以y秒按键一个图片并且失败增加时长(adb路径,x,y,按键码,模板路径,限定区域,最低相似度,线程事件=1):
-    """
-        循环点一个图片到图片消失出现
-        :param adb路径:
-        :param y:
-        :param 按键码:
-        :param 模板路径:
-        :param 限定区域:
-        :param 最低相似度:
-        :param 线程事件:
-        :param x: 循环的次数，循环的延时为 y 秒
-        :return: 是否出现结果
-        """
-    无用, 端口, hwnd, 窗口矩形, (_, _) = adb路径
-    失败再延迟 = 0
-    是否匹配2=False
 
-    for _ in range(x):
-        if not 判断线程与值的布尔函数(线程事件):
-            return False
-
-        png数据 = 获取_png_data(adb路径)
-        是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据,限定区域,模板路径,最低相似度)
-        if 是否匹配:
-            是否匹配2 =True
-
-            模拟按键长按(hwnd, 按键码,0.01 + 失败再延迟)
-            失败再延迟 = 失败再延迟 + 0.009
-
-            可变速等待(1)
-        else:
-            if 是否匹配2:
-                break
-        可变速等待(y)
-    return 是否匹配2
-def 持续x除以y秒按键到图出现(按键码,adb路径,x,y,模板路径,限定区域,最低相似度,线程事件=1):
-    """
-    循环点一个位置直到图片出现
-    :param adb路径:
-    :param y:
-    :param 模板路径:
-    :param 限定区域:
-    :param 最低相似度:
-    :param 线程事件:
-    :param 位置: 元组
-    :param x: 循环的次数，循环的延时为 y 秒
-    :return: 是否出现结果
-    """
-    无用, 端口, hwnd, 窗口矩形, (PC全局延迟, PC键盘延迟) = adb路径
-    失败再延迟 = 0
-    是否匹配2=False
-    for _ in range(x):
-        if not 判断线程与值的布尔函数(线程事件):
-            return False
-        可变速等待(y+失败再延迟*20)
-        png数据 = 获取_png_data(adb路径)
-        是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标 = 函数_在指定区域内进行模板匹配(png数据,限定区域,模板路径,最低相似度)
-        if 是否匹配:
-            if 是否匹配2:
-                break
-            是否匹配2 =True
-        else:
-            if 窗口矩形:
-                模拟按键长按(hwnd, 按键码,0.01 + 失败再延迟)
-                失败再延迟 = 失败再延迟 + 0.01
-            else:
-                长按(adb路径, 位置[0], 位置[1], 持续时间=100+ int(失败再延迟*1000))
-    return 是否匹配2
 def 判断键(最大匹配x坐标):
     if 最大匹配x坐标<269:
         return 0

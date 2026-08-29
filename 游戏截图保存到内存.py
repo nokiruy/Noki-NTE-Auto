@@ -16,6 +16,34 @@ import win32con
 import win32api
 import pydirectinput
 import numpy as np
+from ctypes import wintypes
+
+import cv2
+from 共享线程变量 import 截图方式共享变量
+
+控制对象 = None  # 用于保存回调中的控制对象
+最新帧 = None
+捕获器=None
+import threading
+帧锁 = threading.Lock()
+from windows_capture import WindowsCapture, Frame, InternalCaptureControl
+def on_frame_arrived(帧: Frame, 捕获控制: InternalCaptureControl):
+    """帧到达回调，附带详细输出和错误捕获"""
+    try:
+
+        global 控制对象
+        if 控制对象 is None:
+            控制对象 = 捕获控制
+            print(">>> 已成功获取捕获控制对象")
+
+        # 更新全局最新帧（加锁）
+        global 最新帧
+        with 帧锁:
+            最新帧 = 帧
+    except Exception as e:
+        print(f"WindowsCapture回调函数内部发生严重错误：{e}")
+def on_closed():
+    print("捕获会话已关闭")
 def 获取顶级父窗口句柄(窗口句柄):
     """
     查找给定窗口句柄的顶级父窗口句柄
@@ -110,72 +138,163 @@ def pc端单击键盘无线程事件(hwnd, PC键盘延迟, 键列表, 次数):
         if 当前窗口 == 当前活动窗口:
             break
         time.sleep(0.05 + PC键盘延迟)
-def 函数截图到内存直接返回NumPy数组(句柄, 矩形):
-    """根据窗口信息进行截图并保存为无损PNG到内存"""
-    #start_time = time.time()
+def _png_bytes_to_bgr(png_bytes):
+    """将 PNG 格式的 bytes 转换为 BGR 格式的 numpy 数组，失败返回 None"""
+    try:
+        with io.BytesIO(png_bytes) as bio:
+            img_pil = Image.open(bio).convert("RGB")  # RGB 模式
+            img_np = np.array(img_pil)                # (H, W, 3) RGB
+            img_bgr = img_np[:, :, ::-1]               # 转为 BGR
+            return img_bgr
+    except Exception as e:
+        logger.error(f"解码备用图片失败: {e}")
+        return None
+def 函数截图到内存直接返回NumPy数组(句柄, 矩形,):
+    """
+    根据窗口信息进行截图并返回 NumPy 数组（BGR 格式）
+
+    参数:
+        句柄: 目标窗口句柄
+        矩形: (left, top, right, bottom) 屏幕坐标，或 0 使用默认 1280x720
+        截图方式: "printwindow" 使用 PrintWindow（需窗口可见且支持 GDI）
+
+    返回:
+        成功返回 BGR NumPy 数组，失败返回备用图像
+    """
+    global 捕获器
+    global 控制对象
     hdc = mfc_dc = save_dc = bitmap = None
 
     try:
-        if not 句柄 or not 矩形:
+        if not 句柄:
+            logger.error("窗口信息未初始化")
+            messagebox.showerror("错误", f"窗口信息未初始化,句柄:{句柄}，矩形：{矩形}")
+            return _load_fallback_imageNumPy数组()
 
-            if 句柄:
-                if 矩形 == 0:
-                    矩形 = (0, 0, 1280, 720)#使用脚本要求分辨率
-            else:
-                logger.error(f"窗口信息未初始化")
-                messagebox.showerror("错误", f"窗口信息未初始化,句柄:{句柄}，矩形：{矩形}")
-                return _load_fallback_image()
-
+        # 解析矩形
+        if 矩形 == 0:
+            矩形 = (0, 0, 1280, 720)
+        if not 矩形:
+            logger.error(f"窗口信息未初始化")
+            messagebox.showerror("错误", f"窗口信息未初始化,句柄:{句柄}，矩形：{矩形}")
+            return _load_fallback_imageNumPy数组()
         left, top, right, bottom = 矩形
         width = right - left
         height = bottom - top
 
-        if not win32gui.IsWindowVisible(句柄):
-            logger.error("目标窗口不可见")
-            顶级父窗口 = 获取顶级父窗口句柄(句柄)
-            pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
-            print(f"窗口前置：{顶级父窗口}")
-            return _load_fallback_image()
-        hdc = win32gui.GetWindowDC(句柄)
-        mfc_dc = win32ui.CreateDCFromHandle(hdc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-        bitmap = win32ui.CreateBitmap()
-        bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(bitmap)
-        if ctypes.windll.user32.PrintWindow(句柄, save_dc.GetSafeHdc(), 3):
-            bitmap_bits = bitmap.GetBitmapBits(True)
-            # 直接构造 BGR 矩阵（BGRX -> BGR）
+        # ============ 方式1：PrintWindow ============
+        if 截图方式共享变量.is_set():
+            try:
+                if 捕获器:
+                    if 控制对象 is not None:
+                        控制对象.stop()
+                        print("已调用 stop()，捕获停止")
+                    捕获器 = None
+                    控制对象 = None
+            except Exception as e:
+                print(f"捕获器停止失败: {e}")
+            if not win32gui.IsWindowVisible(句柄):
+                logger.error("目标窗口不可见")
+                顶级父窗口 = 获取顶级父窗口句柄(句柄)
+                pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
+                print(f"窗口前置：{顶级父窗口}")
+                return _load_fallback_imageNumPy数组()
 
-            img_bgr = np.frombuffer(bitmap_bits, dtype=np.uint8).reshape(height, width, 4)[:, :, :3].copy()
-            return img_bgr
+            hdc = win32gui.GetWindowDC(句柄)
+            mfc_dc = win32ui.CreateDCFromHandle(hdc)
+            save_dc = mfc_dc.CreateCompatibleDC()
+            bitmap = win32ui.CreateBitmap()
+            bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+            save_dc.SelectObject(bitmap)
+
+            if ctypes.windll.user32.PrintWindow(句柄, save_dc.GetSafeHdc(), 3):
+                bitmap_bits = bitmap.GetBitmapBits(True)
+                img_bgr = np.frombuffer(bitmap_bits, dtype=np.uint8).reshape(height, width, 4)[:, :, :3].copy()
+                return img_bgr
+            else:
+                logger.error("PrintWindow 调用失败")
+                顶级父窗口 = 获取顶级父窗口句柄(句柄)
+                pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
+                print(f"窗口前置：{顶级父窗口}")
+                return _load_fallback_imageNumPy数组()
+
+        # ============ 方式2：DWM 缩略图 ============
+
 
         else:
-            logger.error("PrintWindow调用失败")
-            顶级父窗口 = 获取顶级父窗口句柄(句柄)
-            pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
-            print(f"窗口前置：{顶级父窗口}")
-            return _load_fallback_image()
+            if not 捕获器:
+                捕获器 = WindowsCapture(cursor_capture=False, draw_border=False, window_hwnd=句柄)
+                捕获器.event(on_frame_arrived)
+                捕获器.event(on_closed)
+
+                # 使用非阻塞方式启动
+                捕获器.start_free_threaded()
+                print("捕获已启动（后台线程）")
+
+            try:
+                global 最新帧
+                for _ in range(10):
+                    with 帧锁:
+                        if 最新帧 is not None:
+                            break
+                    print("最新帧未初始化")
+                    time.sleep(1)
+                else:
+                    return _load_fallback_imageNumPy数组()
+                with 帧锁:
+                    # 获取最新帧的基本信息
+                    height = 最新帧.height
+                    width = 最新帧.width
+                    buffer = 最新帧.frame_buffer  # 已经是 numpy 数组，形状 (H, W, 4)，通道顺序 BGRA
+
+                    # 按 16:9 从底部裁剪
+                    target_height = width * 9 // 16
+                    if height > target_height:
+                        buffer = buffer[height - target_height: height, :, :]  # 保留底部 target_height 行
+
+                    # 提取 BGR 通道（丢掉 Alpha），并确保内存连续
+                    bgr_array = np.ascontiguousarray(buffer[:, :, :3])
+
+                    return bgr_array
+
+            except Exception as e:
+                print(f"截图转换失败: {e}")
+                return _load_fallback_imageNumPy数组()
 
     except Exception as e:
         logger.error(f"截图失败: {str(e)}")
         return _load_fallback_imageNumPy数组()
+
     finally:
-        # 资源释放（保持不变）
-        if bitmap: win32gui.DeleteObject(bitmap.GetHandle())
-        if save_dc: save_dc.DeleteDC()
-        if mfc_dc: mfc_dc.DeleteDC()
-        if hdc: win32gui.ReleaseDC(句柄, hdc)
-def 函数截图到内存(句柄, 矩形):
-    """根据窗口信息进行截图并保存为无损PNG到内存"""
-    #start_time = time.time()
+        if 截图方式共享变量.is_set():
+            if bitmap: win32gui.DeleteObject(bitmap.GetHandle())
+            if save_dc: save_dc.DeleteDC()
+            if mfc_dc: mfc_dc.DeleteDC()
+            if hdc: win32gui.ReleaseDC(句柄, hdc)
+
+def 函数截图到内存(句柄, 矩形, ):
+
+    """
+    根据窗口信息进行截图并保存为无损PNG到内存
+
+    参数:
+        句柄: 目标窗口句柄
+        矩形: (left, top, right, bottom) 屏幕坐标，或 0 使用默认 1280x720
+        截图方式: "printwindow" 使用 PrintWindow（需窗口可见且支持 GDI）
+
+    返回:
+        成功返回 PNG 字节数据，失败返回备用图片字节
+    """
+    global 捕获器
+    global 控制对象
     hdc = mfc_dc = save_dc = bitmap = None
 
     try:
+        # 参数校验
         if not 句柄 or not 矩形:
-
             if 句柄:
                 if 矩形 == 0:
-                    矩形 = (0, 0, 1280, 720)#使用脚本要求分辨率
+                    矩形 = (0, 0, 1280, 720)  # 使用脚本要求分辨率
             else:
                 logger.error(f"窗口信息未初始化")
                 messagebox.showerror("错误", f"窗口信息未初始化,句柄:{句柄}，矩形：{矩形}")
@@ -185,46 +304,103 @@ def 函数截图到内存(句柄, 矩形):
         width = right - left
         height = bottom - top
 
-        if not win32gui.IsWindowVisible(句柄):
-            logger.error("目标窗口不可见")
-            顶级父窗口 = 获取顶级父窗口句柄(句柄)
-            pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
-            print(f"窗口前置：{顶级父窗口}")
-            return _load_fallback_image()
-        hdc = win32gui.GetWindowDC(句柄)
-        mfc_dc = win32ui.CreateDCFromHandle(hdc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-        bitmap = win32ui.CreateBitmap()
-        bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(bitmap)
-        if ctypes.windll.user32.PrintWindow(句柄, save_dc.GetSafeHdc(), 3):
-            bitmap_bits = bitmap.GetBitmapBits(True)
-            img = Image.frombuffer("RGB", (width, height), bitmap_bits, "raw", "BGRX", 0, 1)
+        # ============ 方式1：PrintWindow ============
+        if 截图方式共享变量.is_set():
+            try:
+                if 捕获器:
+                    if 控制对象 is not None:
+                        控制对象.stop()
+                        print("已调用 stop()，捕获停止")
+                    捕获器=None
+                    控制对象=None
+            except Exception as e:
+                print(f"捕获器停止失败: {e}")
+            if not win32gui.IsWindowVisible(句柄):
+                logger.error("目标窗口不可见")
+                顶级父窗口 = 获取顶级父窗口句柄(句柄)
+                pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
+                print(f"窗口前置：{顶级父窗口}")
+                return _load_fallback_image()
 
-            with io.BytesIO() as output:
-                # 修改点：保存为无损PNG
-                img.save(output, format="PNG", compress_level=0)
-                #img.save(f"frame_.png")
-                #print(f"窗口截图完成（无裁剪），总耗时：{time.time() - start_time:.2f}秒")
+            hdc = win32gui.GetWindowDC(句柄)
+            mfc_dc = win32ui.CreateDCFromHandle(hdc)
+            save_dc = mfc_dc.CreateCompatibleDC()
+            bitmap = win32ui.CreateBitmap()
+            bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+            save_dc.SelectObject(bitmap)
 
-                return output.getvalue()
+            if ctypes.windll.user32.PrintWindow(句柄, save_dc.GetSafeHdc(), 3):
+                bitmap_bits = bitmap.GetBitmapBits(True)
+                img = Image.frombuffer("RGB", (width, height), bitmap_bits, "raw", "BGRX", 0, 1)
+                with io.BytesIO() as output:
+                    img.save(output, format="PNG", compress_level=0)
+                    return output.getvalue()
+            else:
+                logger.error("PrintWindow 调用失败")
+                顶级父窗口 = 获取顶级父窗口句柄(句柄)
+                pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
+                print(f"窗口前置：{顶级父窗口}")
+                return _load_fallback_image()
 
         else:
-            logger.error("PrintWindow调用失败")
-            顶级父窗口 = 获取顶级父窗口句柄(句柄)
-            pc端单击键盘无线程事件(顶级父窗口, 0.001, ["w"], 1)
-            print(f"窗口前置：{顶级父窗口}")
-            return _load_fallback_image()
+
+
+            if not 捕获器:
+                捕获器 = WindowsCapture(cursor_capture=False, draw_border=False, window_hwnd=句柄)
+                捕获器.event(on_frame_arrived)
+                捕获器.event(on_closed)
+
+                # 使用非阻塞方式启动
+                捕获器.start_free_threaded()
+                print("捕获已启动（后台线程）")
+
+            try:
+                global 最新帧
+                for _ in range(10):
+                    with 帧锁:
+                        if 最新帧 is not None:
+                            break
+                    print("最新帧未初始化")
+                    time.sleep(1)
+                else:
+                    return _load_fallback_image()
+
+                with 帧锁:
+                    frame = 最新帧  # 直接拿到 Frame 对象
+                    height = frame.height
+                    width = frame.width
+                    buffer = frame.frame_buffer  # 这里就是 numpy 数组！shape (H, W, 4)
+
+                # ---------- 图像处理（锁外） ----------
+                # buffer 已经是 (H, W, 4) 的 BGRA 数组
+                # 按 16:9 从底部裁剪
+                target_height = width * 9 // 16
+                if height > target_height:
+                    buffer = buffer[height - target_height: height, :, :]
+
+                # 转为 RGB：通道顺序 2,1,0（R,G,B），同时用 np.ascontiguousarray 保证连续
+                rgb_array = np.ascontiguousarray(buffer[:, :, 2::-1])  # 2::-1 取 R,G,B 并逆序
+
+                img = Image.fromarray(rgb_array)
+                buf = io.BytesIO()
+                img.save(buf, format='PNG', compress_level=0)
+                return buf.getvalue()
+
+            except Exception as e:
+                print(f"截图转换失败: {e}")
+                return _load_fallback_image()
+
 
     except Exception as e:
         logger.error(f"截图失败: {str(e)}")
         return _load_fallback_image()
+
     finally:
-        # 资源释放（保持不变）
-        if bitmap: win32gui.DeleteObject(bitmap.GetHandle())
-        if save_dc: save_dc.DeleteDC()
-        if mfc_dc: mfc_dc.DeleteDC()
-        if hdc: win32gui.ReleaseDC(句柄, hdc)
+        if 截图方式共享变量.is_set():
+            if bitmap: win32gui.DeleteObject(bitmap.GetHandle())
+            if save_dc: save_dc.DeleteDC()
+            if mfc_dc: mfc_dc.DeleteDC()
+            if hdc: win32gui.ReleaseDC(句柄, hdc)
 def 启动应用(adb_config, 包名):
     """通过包名启动应用"""
     adb路径, 端口,hwnd, 窗口矩形,(PC全局延迟,PC键盘延迟) = adb_config
@@ -237,7 +413,7 @@ def 弹出提示图片():
         current_dir = Path(sys.executable).parent.absolute()
     else:
         current_dir = Path(__file__).parent.absolute()
-    ds_path = current_dir / 'game.json'
+    ds_path = current_dir / 'ds.json'
     # 若不存在，则向上回溯三级目录
     if not ds_path.exists():
         current_dir = current_dir.parent.parent.parent  # 三级回溯
@@ -315,7 +491,7 @@ def 获取_png_数据(adb_config,包名, x1=0, y1=0, x2=0, y2=0):
         messagebox.showerror("错误", f"获取截图时发生错误,端口不可用，请在脚本主界面更换端口，或者尝试重启电脑")
         messagebox.showerror("错误", f"错误信息：{e}")
         正确 = False
-    return 正确
+        return 正确
 
 
     if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
@@ -567,15 +743,24 @@ def 保存截图文件(adb_config, x1=0, y1=0, x2=0, y2=0, 文件名='领取奖�
 # ======================== 主程序 ========================
 if __name__ == "__main__":
     # 假设连接adb模块已返回 (adb路径, 端口) 元组
+    if getattr(sys, 'frozen', False):
+        current_dir = Path(sys.executable).parent.absolute()
 
+    else:
+        current_dir = Path(__file__).parent.absolute()
     目标窗口标题 = "MuMu模拟器12"
     句柄 = win32gui.FindWindow(None, 目标窗口标题)
+    句柄 = 37883306
     # 句柄 =1706984
     print(句柄)
     截图区域 = (0, 0, 1280, 720)  # 根据实际情况调整
     start = time.time()
     for _ in range(100):  # 模拟高频截图
-
-        函数截图到内存(句柄, 截图区域)
+        filePath = current_dir / "filePath.jpg"
+        png数据 = 函数截图到内存(句柄, 截图区域, "dwm")
+        img = Image.open(io.BytesIO(png数据))
+        img = img.convert("RGB")  # 确保是 RGB，避免 RGBA 报错
+        img.save(filePath.with_suffix('.jpg'), format='JPEG', quality=85)
+        break
 
     print(f"平均帧率: {100 / (time.time() - start):.2f} FPS")

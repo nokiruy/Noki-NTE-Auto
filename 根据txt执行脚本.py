@@ -576,3 +576,182 @@ def 执行脚本内容(句柄, 窗口矩形, 线程事件, 脚本内容: str):
 
     print("脚本执行完毕。")
 
+# ===================== 预编译脚本（函数闭包版） =====================
+def 预编译脚本动作(txt文件路径, 窗口矩形):
+    """
+    读取txt脚本并预编译，返回一个可重复调用的动作函数。
+    返回的函数签名： action(句柄, 窗口矩形, 线程事件)
+    """
+    # ---------- 1. 读取脚本内容 ----------
+    if hasattr(txt文件路径, 'read_text'):
+        脚本内容 = txt文件路径.read_text(encoding='utf-8')
+    else:
+        with open(txt文件路径, 'r', encoding='utf-8') as f:
+            脚本内容 = f.read()
+
+    # ---------- 2. 预处理（移除注释、标准化图片路径） ----------
+    脚本内容 = 去除注释(脚本内容)
+    lines = 脚本内容.splitlines()
+    processed_lines = []
+    for line in lines:
+        m = re.match(r'^(识图并返回匹配结果与x与y\s+\(\d+\s*[,，]\s*\d+\s*[,，]\s*\d+\s*[,，]\s*\d+\)\s+[\d.]+\s+)"([^"]+)"', line)
+        if m:
+            prefix = m.group(1)
+            original_path = m.group(2)
+            new_path = 标准化图片路径(original_path)
+            if new_path is None:
+                raise ValueError(f"无效图片路径：{original_path}")
+            line = f'{prefix}"{new_path}"'
+        processed_lines.append(line)
+    脚本内容 = "\n".join(processed_lines)
+
+    # ---------- 3. 解析指令 ----------
+    所有行 = 脚本内容.strip().splitlines()
+    try:
+        指令列表, loop_end_of_start, start_of_loop_end, cond_end_of_start, start_of_cond_end = _parse_instructions(所有行)
+    except Exception as e:
+        raise RuntimeError(f"脚本解析失败：{e}")
+
+    # ---------- 4. 预加载所有模板 ----------
+    模板配置字典 = 预加载模板(指令列表, 窗口矩形)
+    if 模板配置字典 is None:
+        raise RuntimeError("模板预加载失败")
+
+    # ---------- 5. 返回闭包（每次执行时运行） ----------
+    def 执行动作(句柄, 窗口矩形, 线程事件):
+        """预编译后的脚本执行体"""
+        # 执行状态（每次调用独立）
+        match_result = False
+        match_x = 0
+        match_y = 0
+        循环栈 = []          # 元素为 (类型, 数据, 开始索引)
+        break_level = 0
+        PC = 0
+
+        while PC < len(指令列表):
+            if not 线程事件.is_set():
+                print("脚本被中断")
+                return
+
+            inst = 指令列表[PC]
+            typ = inst[0]
+
+            # ----- 跳出循环处理 -----
+            if break_level > 0:
+                if typ == 'loop_start':
+                    PC = loop_end_of_start[PC] + 1
+                    continue
+                elif typ == 'cond_start':
+                    PC = cond_end_of_start[PC] + 1
+                    continue
+                elif typ == 'loop_end':
+                    start_idx = start_of_loop_end[PC]
+                    循环栈 = [e for e in 循环栈 if e[2] != start_idx]
+                    break_level -= 1
+                    PC += 1
+                    continue
+                elif typ == 'cond_end':
+                    PC += 1
+                    continue
+                else:
+                    PC += 1
+                    continue
+
+            # ----- 普通指令 -----
+            if typ == 'action':
+                line = inst[1]
+                # 变量替换
+                line = re.sub(r'\bx\b', str(match_x), line)
+                line = re.sub(r'\by\b', str(match_y), line)
+                try:
+                    执行脚本行(句柄, 窗口矩形, 线程事件, line)
+                except Exception as e:
+                    print(f"动作执行错误：{line}\n{e}")
+                PC += 1
+
+            elif typ == 'loop_start':
+                ltype, param, start_idx = inst[1], inst[2], inst[3]
+                if param <= 0:
+                    PC = loop_end_of_start[PC] + 1
+                    continue
+                if ltype == 'count':
+                    循环栈.append(('count', param, start_idx))
+                else:  # time
+                    循环栈.append(('time', time.time() + param, start_idx))
+                PC += 1
+
+            elif typ == 'loop_end':
+                if not 循环栈:
+                    raise RuntimeError(f"意外的循环结束（行{inst[1]+1}）")
+                ltype, data, start_idx = 循环栈[-1]
+                if ltype == 'count':
+                    if data > 1:
+                        循环栈[-1] = ('count', data - 1, start_idx)
+                        PC = start_idx + 1
+                    else:
+                        循环栈.pop()
+                        PC += 1
+                else:  # time
+                    if time.time() < data:
+                        PC = start_idx + 1
+                    else:
+                        循环栈.pop()
+                        PC += 1
+
+            elif typ == 'cond_start':
+                cond_type = inst[1]
+                if (cond_type == 'true' and not match_result) or (cond_type == 'false' and match_result):
+                    PC = cond_end_of_start[PC] + 1
+                else:
+                    PC += 1
+
+            elif typ == 'cond_end':
+                PC += 1
+
+            elif typ == 'match':
+                region, threshold, img_path = inst[1], inst[2], inst[3]
+                abs_path = 获取完整图片路径(img_path)
+                abs_str = str(abs_path)
+                配置 = 模板配置字典.get(abs_str)
+                if not 配置:
+                    match_result = False
+                    match_x = match_y = 0
+                else:
+                    背景数组 = 函数截图到内存直接返回NumPy数组(句柄, 窗口矩形)
+                    if 背景数组 is not None:
+                        try:
+                            is_match, _, mx, my = 函数_在指定区域数组匹配(背景数组, region, threshold, 配置)
+                            match_result = is_match
+                            match_x, match_y = mx, my
+                        except Exception as e:
+                            print(f"识图异常：{e}")
+                            match_result = False
+                            match_x = match_y = 0
+                    else:
+                        match_result = False
+                        match_x = match_y = 0
+                PC += 1
+
+            elif typ == 'break_loop':
+                break_level = 1
+                PC += 1
+
+            else:
+                PC += 1
+
+    return 执行动作
+
+
+# ===================== 原简单版本（每次解析） =====================
+def 返回txt动作(txt文件路径,  句柄, 窗口矩形):
+    """原始版本：每次执行都重新解析脚本（简单但效率较低）"""
+    if hasattr(txt文件路径, 'read_text'):
+        脚本内容 = txt文件路径.read_text(encoding='utf-8')
+    else:
+        with open(txt文件路径, 'r', encoding='utf-8') as f:
+            脚本内容 = f.read()
+
+    def 动作(事件):
+        执行脚本内容(句柄, 窗口矩形, 事件, 脚本内容)
+
+    return 动作

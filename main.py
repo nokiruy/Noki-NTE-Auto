@@ -10,7 +10,7 @@ import threading
 import time
 import os
 import json
-import ntplib
+
 import datetime
 
 import ctypes
@@ -20,18 +20,16 @@ import sys
 import subprocess
 from tkinter import scrolledtext
 from io import BytesIO
-import webbrowser
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import atexit
 from tkinter import font
 from ctypes import wintypes
 import keyboard
 import logging
-import io
-import shutil
-import hashlib
 
-from 任务执行器 import 执行器
+from 共享线程变量 import 截图方式共享变量
+from 任务执行器 import 高级函数队列执行器
+执行器 = 高级函数队列执行器(最大工作线程=1, 队列大小=99, 默认异步=True)
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -139,20 +137,17 @@ def 初始化OpenCL():
         return False
 
 # ---------- 尝试开启cv2GPU加速，是否使用由用户在GUI自行选择----------
-使用OpenCL = 初始化OpenCL()
-from 连接adb import 中途连接模拟器, 预先连接mumu模拟器2, 查找符合条件的顶级窗口, \
-    get_window_handles_by_path_no_psutil, 根据窗口句柄获取窗口类名和标题
-from mumu模拟器启动器 import MuMu非管理员启动器, MUMU判断模拟器是否完全启动, 获取mumu可用端口
-from 雷电模拟器启动器 import 雷电判断模拟器是否完全启动 ,Leidian非管理员启动器,获取雷电可用端口
+#使用OpenCL = 初始化OpenCL()
+from 连接adb import 中途连接模拟器, 预先连接mumu模拟器2, 查找符合条件的顶级窗口
+from mumu模拟器启动器 import MuMu非管理员启动器, 获取mumu可用端口
+from 雷电模拟器启动器 import Leidian非管理员启动器,获取雷电可用端口
 from 游戏截图保存到内存 import check_resolution,  获取_png_数据, 函数截图到内存, \
     获取_png_data
-from 连接adb import 关闭电脑应用, 获取模拟器客户区句柄, 精确查找所有窗口句柄,从文件提取路径,get_seconds_to_target_time,函数精确查找窗口句柄
+from 连接adb import 关闭电脑应用, 获取模拟器客户区句柄, 精确查找所有窗口句柄
 from 模拟器截图复制到剪切板 import  接收数据复制到剪切板
 from adb操作 import 获取所有设备端口
-from 窗口假激活 import 线程持续激活
-from 检查更新 import 检查更新
-from 异环任务 import  店长特供,超强音,异环钓鱼,速切宏战斗线程,速切宏战斗线程2,自动剧情,自动按F,鼠标快速打开esc界面
-
+from 窗口假激活 import 线程持续激活,检查指定窗口句柄对应的应用是否仍然存在
+from 检查更新 import 检查更新,opener
 
 from 连接adb import  获取模拟器应用路径,monitor_and_restore_window_position
 import 后台点击再次封装
@@ -175,11 +170,12 @@ else:
        ["UnrealWindow", "鸣潮  "],
 ["UnrealWindow", "NTE  "],
 ["UnrealWindow", "异环  "],
+["Qt*QWindowIcon", "云*"],
       ]
 
-if not 路径.exists():
-    with open(路径, 'w', encoding='utf-8') as file:
-        json.dump({"端游列表": 列表}, file)  # 初始化为空列表，根据需求可改为{}
+
+with open(路径, 'w', encoding='utf-8') as file:
+    json.dump({"端游列表": 列表}, file)  # 初始化为空列表，根据需求可改为{}
 
 线程事件任务循环 = threading.Event()
 # 将事件对象导出到睡眠倍数模块
@@ -258,6 +254,74 @@ def 限制脚本运行速度(value):
         return 10.0
     else:
         return speed
+from typing import Optional
+
+# 颜色转换工具：将 #RRGGBB 或 "RRGGBB" 转换为 0x00BBGGRR (COLORREF)
+def hex_to_colorref(hex_str: Optional[str], default: str) -> int:
+    """将十六进制颜色字符串转为 COLORREF，失败则返回默认值"""
+    if not hex_str:
+        hex_str = default
+    # 去除前缀
+    s = hex_str.lstrip('#').lstrip('0x').lstrip('0X')
+    if len(s) != 6:
+        s = default.lstrip('#')  # 格式错误用默认
+    try:
+        r = int(s[0:2], 16)
+        g = int(s[2:4], 16)
+        b = int(s[4:6], 16)
+        # COLORREF = 0x00BBGGRR
+        return (b << 16) | (g << 8) | r
+    except ValueError:
+        # 失败回退
+        r, g, b = 0x00, 0xFF, 0x00  # 绿色
+        return (b << 16) | (g << 8) | r
+window = tk.Tk()
+window.withdraw()  # 隐藏窗口
+# 全局控制变量（可根据需要动态修改）
+popup_enabled = tk.BooleanVar(value=True)
+
+class ToastDLL:
+    def __init__(self, dll_path: str = "./ToastLib.dll"):
+        self._dll = ctypes.CDLL(dll_path)
+        self._dll.ShowToast.argtypes = [
+            ctypes.c_wchar_p,   # message
+            ctypes.c_int,       # durationMs
+            ctypes.c_uint32,    # textColor (COLORREF)
+            ctypes.c_uint32     # bgColor
+        ]
+        self._dll.ShowToast.restype = None
+
+    def show(self,
+             message: str,
+             duration_ms: int = 3000,
+             text_color: Optional[str] = None,      # 如 "FF0000"
+             bg_color: Optional[str] = None         # 如 "F0F8FF" (AliceBlue)
+             ):
+        """
+        显示非阻塞 Toast，失败不会抛出异常或弹窗。
+        text_color/bg_color 为十六进制 RRGGBB 字符串，支持 # 前缀。
+        """
+        # 检测全局弹窗开关
+        if not popup_enabled.get():
+            import winsound
+
+            # 播放提示音
+            winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS)
+            print(f"[Toast] {message}")
+            return
+
+        # 默认颜色：亮绿文字，非常浅蓝背景 (AliceBlue)
+        text = hex_to_colorref(text_color, "00FF00")   # 默认绿色
+        bg   = hex_to_colorref(bg_color,   "F0F8FF")   # AliceBlue
+
+        # 调用 DLL 函数（线程安全，内部已捕获所有异常）
+        try:
+            self._dll.ShowToast(message, duration_ms, text, bg)
+        except Exception:
+            # 理论上不会触发，保留一个保险
+            pass
+toast = ToastDLL(str(current_dir / "UI" / "脚本UI" / "ToastLib.dll"))
+执行器.提交任务(toast.show, f"工具免费，如果是付费购买，请要求商家退款，并帮忙举报倒卖", duration_ms=4000,  text_color="FF0000", bg_color="353535", 异步=True)
 def 检查窗口分辨率(矩形, 目标分辨率):
     x, y = 目标分辨率
     a, b, c, d = 矩形
@@ -340,47 +404,136 @@ def 获取模拟器路径并保存(hwnd):
             logger.warning(f"保存路径时出错: {e}")
 
 
+import os
+import subprocess
+import tempfile
+import time
+import logging
+import ctypes
 
-def 安全打开应用(应用路径):
-    """增强版：处理带引号、空格的路径"""
+logger = logging.getLogger(__name__)
+
+
+
+def _run_via_task_scheduler(command: str, arguments: str = "") -> bool:
+    """
+    ·以 LeastPrivilege 降权运行程序
+    :param command: 可执行文件路径
+    :param arguments: 命令行参数
+    :return: 成功返回 True，否则 False
+    """
+    # 生成唯一任务名称，避免冲突
+    task_name = f"MuMu_SafeLaunch_{os.getpid()}_{int(time.time() * 1000)}"
+
+    # 任务 XML 内容（UTF-16 编码）
+    xml_content = f'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo />
+  <Triggers />
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{command}</Command>
+      <Arguments>{arguments}</Arguments>
+    </Exec>
+  </Actions>
+</Task>'''
+
+    xml_path = None
     try:
-        # 去除首尾引号和空格
-        应用路径 = 应用路径.strip().strip('"\'')
+        # 写入 UTF-16 临时文件（schtasks /xml 强制要求 UTF-16）
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-16') as f:
+            f.write(xml_content)
+            xml_path = f.name
 
-        if not os.path.exists(应用路径):
-            logger.warning(f"应用程序路径不存在：{应用路径}")
+        # 创建任务
+        create_cmd = f'schtasks /create /tn "{task_name}" /xml "{xml_path}" /f'
+        create_res = subprocess.run(create_cmd, shell=True, capture_output=True, text=True)
+        if create_res.returncode != 0:
+            logger.warning(f"创建任务计划失败: {create_res.stderr.strip()}")
             return False
 
-        # 方法1：直接使用路径（推荐）
-        subprocess.Popen([应用路径], shell=False)
-
-
-
-        logger.info(f"成功打开应用：{应用路径}")
-        return True
-    except FileNotFoundError:
-        logger.warning(f"应用程序不存在：{应用路径}")
-        return False
-    except PermissionError:
-        logger.warning(f"没有权限执行应用程序：{应用路径}")
-        return False
-    except Exception as e:
-        logger.warning(f"打开应用失败：{str(e)}")
-        return False
-def 安全打开文件(文件路径):
-    """使用系统默认程序打开文件"""
-    文件路径=str(文件路径)
-    try:
-        # 去除路径两端的引号、空格等多余字符
-        文件路径 = 文件路径.strip().strip('"\'')
-        if not os.path.exists(文件路径):
-            logger.warning(f"文件路径不存在：{文件路径}")
+        # 立即运行任务（异步触发，不等待完成）
+        run_cmd = f'schtasks /run /tn "{task_name}"'
+        run_res = subprocess.run(run_cmd, shell=True, capture_output=True, text=True)
+        if run_res.returncode != 0:
+            logger.warning(f"运行任务计划失败: {run_res.stderr.strip()}")
             return False
 
-        os.startfile(文件路径)  # Windows系统专用方法
+        # 短暂延迟，确保任务已被调度系统拾取
+        time.sleep(0.5)
         return True
+
     except Exception as e:
-        logger.warning(f"打开文件失败：{str(e)}")
+        logger.error(f"任务计划执行异常: {e}")
+        return False
+    finally:
+        # 无论成败，尝试删除任务和临时文件
+        subprocess.run(f'schtasks /delete /tn "{task_name}" /f', shell=True,
+                       capture_output=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if xml_path and os.path.exists(xml_path):
+            try:
+                os.unlink(xml_path)
+            except OSError as e:
+                logger.debug(f"清理临时 XML 失败: {e}")
+
+def 安全打开应用(应用路径: str) -> bool:
+    """
+    安全打开应用程序（若当前为管理员进程，则降权运行）
+    """
+    # 清理路径
+    应用路径 = 应用路径.strip().strip('"\'')
+    if not os.path.exists(应用路径):
+        logger.warning(f"应用程序路径不存在：{应用路径}")
+        return False
+
+    try:
+
+        logger.info(f"当前为管理员权限，将通过任务计划降权启动：{应用路径}")
+        return _run_via_task_scheduler(应用路径)
+    except Exception as e:
+        logger.warning(f"打开应用失败：{e}")
+        return False
+
+def 安全打开文件(文件路径: str) -> bool:
+    """
+    用系统默认程序打开文件（管理员下降权）
+    原理：通过 cmd /c start "" "路径" 由任务计划以 LeastPrivilege 运行
+    """
+    文件路径 = str(文件路径).strip().strip('"\'')
+    if not os.path.exists(文件路径):
+        logger.warning(f"文件路径不存在：{文件路径}")
+        return False
+
+    try:
+
+        # 管理员下构造命令：cmd /c start "" "文件路径"
+        # start 命令第一个参数是窗口标题（空字符串），第二个才是文件路径
+        cmd = "cmd"
+        args = f'/c start "" "{文件路径}"'
+        logger.info(f"当前为管理员权限，将通过任务计划打开文件：{文件路径}")
+        return _run_via_task_scheduler(cmd, args)
+    except Exception as e:
+        logger.warning(f"打开文件失败：{e}")
         return False
 def 执行提示文本(配置键前缀):
     config_path = os.path.join(current_dir, 'web_and_app.json')
@@ -443,7 +596,7 @@ def 执行打开操作(配置键前缀, 打开类型):
             try:
                 if 打开类型 == "网站":
                     if target.startswith(('http://', 'https://')):
-                        webbrowser.open(target, new=2)
+                        opener.open(target, new=2)
                         success_count += 1
                     else:
                         logger.warning(f"无效URL格式：{target}")
@@ -624,7 +777,7 @@ def 获取adb路径并检查(检查线程=True,端口号=None,检查分辨率=Tr
                                     hwnd = 0
                 else:
                     hwnd = 0
-                    Tool_Settings["截图方式变量"]="模拟器ADB"
+                    Tool_Settings["截图方式变量"]="PC端窗口"#模拟器ADB
                     with open(Path(current_dir)/"Tool_Settings.json", 'w', encoding='utf-8') as file:
                         json.dump(Tool_Settings, file, ensure_ascii=False, indent=4)
 
@@ -821,17 +974,27 @@ def 任务执行完成后关闭游戏(关闭游戏):
 
                     if hwnd:
                         break
+from 异环任务 import (店长特供, 超强音, 异环钓鱼, 速切宏战斗线程, 速切宏战斗线程2,
+                      自动剧情, 自动按F, 鼠标快速打开esc界面, 赛车, 暗黑赛车活动挂机,
+                       弹起所有按键, 呗果, 格斗争霸赛活动挂机,徊影憧憬活动挂机,九百九十九活动刷,渔获大作战)
 
 def 函数根据任务名启动任务线程(任务名):
-    if "异环钢琴" in 任务名:
-        adb路径 = 获取adb路径并检查(检查分辨率=False)
+
+
+    if "异环钢琴" in  任务名:
         游戏静音=False
+        检查分辨率 = False
+
     else:
+        #toast.show("黑色背景白色文字", text_color="FFFFFF", bg_color="000000")
+        执行器.提交任务(toast.show, f"运行{任务名}任务开始", duration_ms=2000,  text_color="FF0000", bg_color="353535", 异步=True)
         threading.Thread(target=monitor_and_restore_window_position,
                      args=(线程事件任务循环,)).start()
-        adb路径 = 获取adb路径并检查(检查分辨率=True)
+        检查分辨率 = True
         游戏静音=True
-
+    if 任务名 == "异环店长特供":
+        检查分辨率 = True
+    adb路径 = 获取adb路径并检查(检查分辨率=检查分辨率)
     from 异环钢琴main import  转换并保存MIDI_支持静音区间, 多线程演奏_直接从内存, 多线程演奏
     if adb路径:
         _, _, 异环句柄, _, _ = adb路径
@@ -842,6 +1005,24 @@ def 函数根据任务名启动任务线程(任务名):
         elif 任务名 == "异环店长特供":
 
             店长特供(adb路径, current_dir, 线程事件任务循环)
+        elif 任务名 == "异环赛车挂机":
+            赛车(current_dir, adb路径, 线程事件任务循环)
+        elif 任务名 == "异环呗果":
+            呗果(current_dir, adb路径, 线程事件任务循环,toast)
+        elif 任务名 == "异环暗黑赛车挂机":
+
+
+            暗黑赛车活动挂机(current_dir, adb路径, 线程事件任务循环)
+        elif 任务名 == "徊影憧憬活动挂机":
+            徊影憧憬活动挂机(current_dir, adb路径, 线程事件任务循环)
+        elif 任务名 == "格斗争霸赛挂机":
+
+            格斗争霸赛活动挂机(current_dir, adb路径, 线程事件任务循环)
+        elif 任务名 == "渔获大作战":
+            渔获大作战(current_dir, adb路径, 线程事件任务循环)
+        elif 任务名 == "九九九夜刷纽扣等级":
+
+            九百九十九活动刷(current_dir, adb路径, 线程事件任务循环)
         elif 任务名 == "异环钓鱼":
 
 
@@ -933,21 +1114,16 @@ def 函数根据任务名启动任务线程(任务名):
             线程事件任务循环.clear()
             线程事件停止循环.clear()
             return
-    messagebox.showinfo("提示",
-                        f"运行任务结束")
+
+
     线程事件任务循环.clear()
     线程事件停止循环.clear()
-def 函数根据任务名启动任务(任务名):
-    线程事件任务循环.set()
-    线程事件停止循环.set()
-    threading.Thread(target=函数根据任务名启动任务线程,
-                     args=(任务名,)).start()
+    执行器.提交任务(toast.show,f"{任务名}任务结束", duration_ms=2000, text_color="FF0000", bg_color="353535",异步=True)
+
+
 def 预先连接mumu模拟器启动线程():
     threading.Thread(target=预先连接mumu模拟器2,
                      args=()).start()
-
-
-
 
 
 def 函数停止任务():
@@ -956,7 +1132,24 @@ def 函数停止任务():
     else:
         logger.debug("没有正在运行的任务")
     线程事件任务循环.clear()
-
+线程事件停止循环1 = threading.Event()
+线程事件任务循环1 = threading.Event()
+线程事件停止循环2 = threading.Event()
+线程事件任务循环2 = threading.Event()
+线程事件停止循环3 = threading.Event()
+线程事件任务循环3 = threading.Event()
+线程事件停止循环4 = threading.Event()
+线程事件任务循环4 = threading.Event()
+def 函数停止全部任务():
+    if 线程事件停止循环.is_set() or 线程事件任务循环1.is_set() or 线程事件任务循环2.is_set() or 线程事件任务循环3.is_set() or 线程事件任务循环4.is_set():
+        logger.debug("正在停止当前任务")
+    else:
+        logger.debug("没有正在运行的任务")
+    线程事件任务循环.clear()
+    线程事件任务循环1.clear()
+    线程事件任务循环2.clear()
+    线程事件任务循环3.clear()
+    线程事件任务循环4.clear()
 def 调整列表字符串长度(字符串列表):
     """
     将字符串列表中的每个元素调整为与最长字符串相同长度，左右均匀补全角空格
@@ -1142,11 +1335,47 @@ class 子窗口管理器:
         if self.窗口对象:
             self.窗口对象.destroy()
             self.窗口对象 = None
+import json
+import sys
+from pathlib import Path
+import inspect
 
+def 管理设置(保存载入, 路径, mapping):
+    """
+    通用设置加载/保存
+    mapping: 字典，键为 JSON 中的键名，值为 tkinter 变量对象
+    """
+    # 获取调用这个函数的脚本文件路径（不是本工具所在的文件）
+    frame = inspect.currentframe().f_back
+    caller_file = frame.f_globals.get('__file__')
+    if caller_file is None:
+        raise RuntimeError("无法确定调用者的文件路径")
+    if 保存载入 == '加载':
+        try:
+            if 路径.exists():
+                with open(路径, 'r', encoding='utf-8') as f:
+                    数据 = json.load(f)
+                for key, var in mapping.items():
+                    if key in 数据:
+                        var.set(数据[key])
+                print(f"{路径} 加载成功")
+            else:
+                print(f"未找到 {路径}，使用默认设置")
+        except Exception as e:
+            print(f"加载 {路径} 时出错: {e}")
 
+    elif 保存载入 == '保存':
+        try:
+            路径.parent.mkdir(parents=True, exist_ok=True)
+            数据 = {key: var.get() for key, var in mapping.items()}
+            with open(路径, 'w', encoding='utf-8') as f:
+                json.dump(数据, f, ensure_ascii=False, indent=4)
+            print(f"{路径} 保存成功")
+        except Exception as e:
+            print(f"保存 {路径} 时出错: {e}")
 
-
-
+    else:
+        raise ValueError("action 必须是 'load' 或 'save'")
 def 函数主程序():
 
     global 幻塔脚本运行
@@ -1184,6 +1413,7 @@ def 函数主程序():
             "脚本运行速度变量": 脚本运行速度变量.get(),
             "异环游戏静音变量" :异环游戏静音变量.get(),
             "GPU加速识图变量": GPU加速识图变量.get(),
+            "popup_enabled变量": popup_enabled.get(),
         }
         try:
             with open(Path(current_dir)/"Tool_Settings.json", 'w', encoding='utf-8') as file:
@@ -1238,8 +1468,10 @@ def 函数主程序():
                 脚本运行速度变量.set(Tool_Settings["脚本运行速度变量"])
             if "异环游戏静音变量" in Tool_Settings:
                 异环游戏静音变量.set(Tool_Settings["异环游戏静音变量"])
-            if "GPU加速识图变量" in Tool_Settings:
-                GPU加速识图变量.set(Tool_Settings["GPU加速识图变量"])
+            """if "GPU加速识图变量" in Tool_Settings:
+                GPU加速识图变量.set(Tool_Settings["GPU加速识图变量"])"""
+            if "popup_enabled变量" in Tool_Settings:
+                popup_enabled.set(Tool_Settings["popup_enabled变量"])
         except FileNotFoundError:
             logger.warning(f"设置文件 {Tool_path} 不存在，将使用默认设置")
         except json.JSONDecodeError:
@@ -1502,7 +1734,10 @@ def 函数主程序():
 
             线程事件停止循环.set()
 
-            函数根据任务名启动任务(任务名)
+            线程事件任务循环.set()
+            线程事件停止循环.set()
+            threading.Thread(target=函数根据任务名启动任务线程,
+                             args=(任务名,)).start()
 
 
 
@@ -1515,13 +1750,12 @@ def 函数主程序():
         app_icon_path = current_dir / "幻塔图片" / "app_iconHottA.png"
     elif 异环脚本运行:
         app_icon_path = current_dir / "异环图片" / "app_iconNTE.png"
-    window = tk.Tk()
-    window.withdraw()  # 隐藏窗口
+
     current_version = "0.0.1"
     if 幻塔脚本运行:
         current_version ="0.0.1"
     if 异环脚本运行:
-        current_version = "1.5.43"
+        current_version = "1.6.66"
     title = f"NHAuto-v{current_version} bilibili@NOKIRUY"
     window.title(title)
 
@@ -1553,15 +1787,20 @@ def 函数主程序():
             entry.insert(0,
                          "123网盘(下载速度快):https://1835681195.share.123pan.cn/123pan/1WJ4Td-9SxP3?pwd=saki# 提取码：saki")
             entry.pack(fill=tk.BOTH, expand=True)
-        tooltip_label = tk.Label(
+            entry = tk.Entry(tooltip_window, font=("微软雅黑", 16), )
+            entry.insert(0,
+                         "夸克网盘:https://pan.quark.cn/s/aa595ffa104b?pwd=fj8n 提取码: fj8n")
+            entry.pack(fill=tk.BOTH, expand=True)
+        tooltip_text = scrolledtext.ScrolledText(
             tooltip_window,
-            text=文本,
-            font=("微软雅黑", 20),
-            justify=tk.LEFT,
+            font=("微软雅黑", 14),
+            wrap=tk.WORD,
+            height=20,  # 显示 20 行高度
             padx=10,
             pady=10
         )
-        tooltip_label.pack(fill=tk.BOTH, expand=True)
+        tooltip_text.pack(fill=tk.BOTH, expand=True)
+        tooltip_text.insert("1.0", 文本)
 
         tooltip_window.update_idletasks()
 
@@ -1882,7 +2121,7 @@ def 函数主程序():
         截图方式下拉框 = ttk.Combobox(选项卡任务列表容器3_3, textvariable=截图方式变量,
                                       values=["模拟器ADB", "PC端窗口"], font=("楷体", 16, "bold"), width=15)
         截图方式下拉框.grid(row=0, column=1)
-        截图方式变量.set("模拟器ADB")
+        截图方式变量.set("PC端窗口")#模拟器ADB
 
         def 截图方式提示窗口(文本, 标题="版本更新提示"):
             tooltip_window = tk.Toplevel(window)
@@ -1964,18 +2203,29 @@ def 函数主程序():
         选项卡任务列表容器3_2.grid(row=3, column=0, sticky="ew", )
         选项卡任务列表容器3_2.columnconfigure(0, weight=1)
 
-        端口号标签 = tk.Label(选项卡任务列表容器3_2, text="端 口:", font=("微软雅黑", 16))
+        端口号标签 = tk.Label(选项卡任务列表容器3_2, text="窗 口:", font=("微软雅黑", 16))
         端口号标签.grid(row=0, column=0,sticky=tk.W,)
 
         # 创建下拉框
         端口号变量 = tk.StringVar()
-        with open(os.path.join(current_dir, 'Tool_Settings.json'), 'r', encoding='utf-8') as file:
-            Tool_Settings = json.load(file)
-        if "端口号变量" in Tool_Settings:
-            端口号 =Tool_Settings["端口号变量"]
+          # 默认值
+        try:
+            with open(os.path.join(current_dir, 'Tool_Settings.json'), 'r', encoding='utf-8') as file:
+                Tool_Settings = json.load(file)
 
 
-        端口号变量.set(端口号)  # 默认值
+            if "端口号变量" in Tool_Settings:
+                端口号 = Tool_Settings["端口号变量"]
+                端口号变量.set(端口号)  # 默认值
+            else:
+                # 如果键不存在，可以根据需要记录日志或保持 0（这里保持 0）
+                pass
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError) as e:
+            # 发生任何异常时，端口号已经是 0
+            print(f"读取配置文件失败，将使用默认端口号 0。错误信息: {e}")
+
+
+
         端口号下拉框 = ttk.Combobox(选项卡任务列表容器3_2, textvariable=端口号变量, font=("微软雅黑", 11), width=12)
         端口号下拉框.grid(row=0, column=1)
         创建按钮2grid(选项卡任务列表容器3_2, "❓", lambda: 执行器.提交任务(截图方式帮助说明, 异步=False),
@@ -2029,7 +2279,7 @@ def 函数主程序():
         选项卡任务列表容器3.columnconfigure(5, weight=1)  # 设置第0列的权重为1
         缩略图容器 = ttk.LabelFrame(选项卡任务列表容器3)
         缩略图容器.grid(row=5, column=0, sticky="ew", pady=5, )
-
+        #缩略图容器.grid_remove()#隐藏脚本运行速度
         标签 = tk.Label(
             缩略图容器,
             text="脚本运行速度x",
@@ -2070,6 +2320,7 @@ def 函数主程序():
 
         def 动态等比例缩放并更新图片(*args):
             """非阻塞方式更新图片"""
+
             try:
                 _执行图片更新任务()
             except Exception as e:
@@ -2101,6 +2352,16 @@ def 函数主程序():
                             for 元组 in 窗口列表:
                                 hwnd, 窗口矩形 = 元组
                                 if str(hwnd) == str(端口号变量.get()):
+                                    import win32gui
+                                    窗口类名 = win32gui.GetClassName(int(hwnd))
+                                    #窗口标题 = win32gui.GetWindowText(int(hwnd))
+                                    if 'QWindowIcon' in 窗口类名:
+                                        执行器.提交任务(toast.show, f"检测为云异环，如果游戏分辨率无法调整为1280*720，请将电脑文本缩放调整至100%",
+                                                        duration_ms=5000, text_color="FF0000", bg_color="353536", 异步=True)
+                                        print("检测为云异环")
+                                        截图方式共享变量.clear()
+                                    else:
+                                        截图方式共享变量.set()
                                     png_data = 函数截图到内存(hwnd, 窗口矩形)
                                     客户端选择变量.set(1)
                                     截图方式变量.set("PC端窗口")
@@ -2116,13 +2377,13 @@ def 函数主程序():
                         pass
 
                     else:
-                        客户端选择变量.set(2)
+                        客户端选择变量.set(1)#模拟器ADB
                         logger.debug("设置客户端为模拟器")
                         png_data = _模拟器模式更新端口图()
                         if "雷电" in str(端口号变量.get()) or "MuMu" in str(端口号变量.get()):
                             pass
                         else:
-                            截图方式变量.set("模拟器ADB")
+                            截图方式变量.set("PC端窗口")#模拟器ADB
 
                     if png_data:
                         # 在后台线程处理图片
@@ -2211,14 +2472,14 @@ def 函数主程序():
                         客户端选择变量.set(1)
                         截图方式变量.set("PC端窗口")
                     except:
-                        客户端选择变量.set(2)
+                        客户端选择变量.set(1)#模拟器ADB
                         if "雷电" in str(端口号变量.get()) or "MuMu" in str(端口号变量.get()):
                             if 截图方式变量.get() != "PC端窗口":
                                 print(截图方式变量.get())
                         else:
-                            截图方式变量.set("模拟器ADB")
+                            截图方式变量.set("PC端窗口")#模拟器ADB
 
-                窗口列表 = 查找符合条件的顶级窗口(目标窗口类名="RenderWindow", 目标窗口标题="TheRender", )
+                """窗口列表 = 查找符合条件的顶级窗口(目标窗口类名="RenderWindow", 目标窗口标题="TheRender", )
                 if 窗口列表:
                     雷电句柄 = 窗口列表[0]
                     print(f"雷电句柄: {雷电句柄}")
@@ -2239,7 +2500,7 @@ def 函数主程序():
                     启动器 = MuMu非管理员启动器(播放器路径=MuMupath)
                     列表 = 获取mumu可用端口(启动器)
                     print(列表)
-                    端口列表 = 端口列表 + 列表
+                    端口列表 = 端口列表 + 列表"""
 
                 adb程序 = current_dir / "platform-tools" / "adb.exe"
 
@@ -2270,7 +2531,8 @@ def 函数主程序():
                         for 元组 in 窗口列表:
                             hwnd, 窗口矩形 = 元组
                             端口列表.append(str(hwnd))
-                窗口列表 = 查找符合条件的顶级窗口(目标窗口类名="RenderWindow", 目标窗口标题="TheRender", )
+
+                """窗口列表 = 查找符合条件的顶级窗口(目标窗口类名="RenderWindow", 目标窗口标题="TheRender", )
                 if 窗口列表:
                     雷电句柄 = 窗口列表[0]
                     print(f"雷电句柄: {雷电句柄}")
@@ -2291,7 +2553,7 @@ def 函数主程序():
                     启动器 = MuMu非管理员启动器(播放器路径=MuMupath)
                     列表 = 获取mumu可用端口(启动器)
                     print(列表)
-                    端口列表 = 端口列表 + 列表
+                    端口列表 = 端口列表 + 列表"""
 
                 with open(os.path.join(current_dir, 'Tool_Settings.json'), 'r', encoding='utf-8') as file:
                     Tool_Settings = json.load(file)
@@ -2307,17 +2569,17 @@ def 函数主程序():
                         客户端选择变量.set(1)
                         截图方式变量.set("PC端窗口")
                     except:
-                        客户端选择变量.set(2)
+                        客户端选择变量.set(1)#模拟器ADB
                         if "雷电" in str(端口号变量.get()) or "MuMu" in str(端口号变量.get()):
                             if 截图方式变量.get() != "PC端窗口":
                                 print(截图方式变量.get())
                         else:
-                            截图方式变量.set("模拟器ADB")
+                            截图方式变量.set("PC端窗口")#模拟器ADB
 
                 adb程序 = current_dir / "platform-tools" / "adb.exe"
 
                 所有设备 = 获取所有设备端口(adb程序)
-
+                print(f"所有设备:{所有设备}")
                 所有设备 = 端口列表 + 所有设备
                 logger.debug(f"所有设备{所有设备}")
                 端口号 = "无可用端口"
@@ -2352,7 +2614,22 @@ def 函数主程序():
                     if "雷电" in str(文件中的端口号) or "MuMu" in str(文件中的端口号):
                         端口号=文件中的端口号
                 端口号变量.set(端口号)
-
+        def 刷新端口列表3():
+            time.sleep(5)
+            for _ in range(60):
+                time.sleep(2)
+                try:
+                    变量 = int(端口号变量.get())
+                    存在 = 检查指定窗口句柄对应的应用是否仍然存在(变量)
+                    if 存在:
+                        print("找到游戏，退出寻找游戏循环")
+                        return
+                    else:
+                        print("未找到游戏，继续刷新")
+                        刷新端口列表()
+                except:
+                    print("端口不能整数化，不是句柄，退出")
+                    return
 
         创建按钮2grid(选项卡任务列表容器3_2, "刷新", lambda: 执行器.提交任务(刷新端口列表,),
                       字体配置=("微软雅黑", 16), width=4, height=1, 位置=0, 位置2=2, )
@@ -2621,6 +2898,13 @@ def 函数主程序():
             try:
 
                 with open(os.path.join(current_dir, 'web_and_app.json'), "r", encoding="utf-8") as f:
+                    # 检查文件是否为空
+                    content = f.read().strip()
+                    if not content:
+                        logger.warning("配置文件为空，使用默认配置")
+                        return
+                    # 重新定位到文件开头并解析
+                    f.seek(0)
                     配置数据 = json.load(f)
 
                     # 加载原有配置
@@ -2668,14 +2952,24 @@ def 函数主程序():
                     if "脚本任务结束后提示文本列表" in 配置数据:  # 新增判断
                         文本框变量管理器8.set(配置数据["脚本任务结束后提示文本列表"])
 
+
             except FileNotFoundError:
+
                 logger.debug("首次运行，未找到配置文件")
+
+            except json.JSONDecodeError as e:
+
+                logger.error(f"配置文件不是有效的 JSON 格式：{e}，请检查 web_and_app.json 文件内容")
+
+                # 可选：备份损坏的文件，然后创建一个默认配置文件
+
             except KeyError as e:
+
                 logger.warning(f"配置文件缺少必要键：{e}")
 
         # 最后记得调用加载配置（比如在程序启动时）
 
-    def 截图到剪切板():
+    def 截图到剪切板(弹窗=True):
         函数保存设置()
         adb路径 = 获取adb路径并检查(检查线程=False,检查分辨率=False)
         if adb路径:
@@ -2685,44 +2979,62 @@ def 函数主程序():
             logger.info("正在复制到剪切板")
             # 复制到剪切板
             接收数据复制到剪切板(png_data)
+            if 弹窗:
 
-            root = tk.Tk()
-            root.withdraw()  # 隐藏主窗口
-            messagebox.showinfo("截图成功", f"截图已经复制到剪切板，现在你可以在画图软件中粘贴并编辑")
+                messagebox.showinfo("截图成功", f"截图已经复制到剪切板，现在你可以在画图软件中粘贴并编辑")
         else:
-            root = tk.Tk()
-            root.withdraw()  # 隐藏主窗口
+
             messagebox.showinfo("截图失败", "请更换成可用端口")
 
     if 异环脚本运行:
         if 异环脚本运行:
+            def 打开异环演示视频():
+                opener.open("https://www.bilibili.com/video/BV1dbogBaE8x/")
             选项卡任务列表容器1 = ttk.Frame(选项卡任务列表)
             选项卡任务列表容器1.grid(row=0, column=0, padx=0, pady=0, sticky=tk.NW)
             选项卡任务列表容器1_2 = ttk.Frame(选项卡任务列表容器1)
             选项卡任务列表容器1_2.grid(row=5, column=0, padx=0, pady=0)
             小功能按钮字体 = 15
             小功能按钮长度 = 11
-            小功能位置列表 = [1, 1, 2, 2, 3, 3, 4]
-
             异环钓鱼子容器 = ttk.Frame(选项卡其他任务加载)
             异环钢琴演奏子容器 = ttk.Frame(选项卡其他任务加载)
-            幻塔钓鱼子容器 = ttk.Frame(选项卡其他任务加载)
             异环店长特供子容器 = ttk.Frame(选项卡其他任务加载)
             异环超强音子容器 = ttk.Frame(选项卡其他任务加载)
             异环其他任务子容器= ttk.Frame(选项卡其他任务加载)
-            # 将三个子容器存入字典，方便后续切换
+            异环赛车挂机子容器= ttk.Frame(选项卡其他任务加载)
+            异环格斗俱乐部子容器 = ttk.Frame(选项卡其他任务加载)
+            九九九夜子容器 = ttk.Frame(选项卡其他任务加载)
+            徊影憧憬活动挂机子容器 = ttk.Frame(选项卡其他任务加载)
+            渔获大作战子容器 = ttk.Frame(选项卡其他任务加载)
+            异环呗果任务子容器 = ttk.Frame(选项卡其他任务加载)
             子容器字典 = {
-                "异环钓鱼": 异环钓鱼子容器,
-                "异环钢琴": 异环钢琴演奏子容器,
-                "幻塔钓鱼": 幻塔钓鱼子容器,
-                "异环店长特供": 异环店长特供子容器,
-                "异环超强音": 异环超强音子容器,
-                "异环其他任务": 异环其他任务子容器,
-            }
+                "异环钓鱼子容器": 异环钓鱼子容器,
+                "异环钢琴演奏子容器": 异环钢琴演奏子容器,
+                "异环店长特供子容器": 异环店长特供子容器,
+                "异环超强音子容器": 异环超强音子容器,
+                "异环赛车挂机子容器": 异环赛车挂机子容器,
+                "异环格斗俱乐部子容器": 异环格斗俱乐部子容器,
+                "九九九夜子容器": 九九九夜子容器,
+                "徊影憧憬活动挂机子容器": 徊影憧憬活动挂机子容器,
+                "渔获大作战子容器": 渔获大作战子容器,
+                "异环其他任务子容器": 异环其他任务子容器,
+                "异环呗果任务子容器": 异环呗果任务子容器,
 
-            # 将所有子容器放置在相同位置，并立即隐藏
+            }
             for container in 子容器字典.values():
                 container.grid(row=0, column=0)
+                def 显示任务窗口(任务):
+                    for container in 子容器字典.values():
+                        container.grid_remove()
+                        # 显示目标子容器
+                    子容器字典[任务].grid()
+                    notebook.select(选项卡其他任务加载)
+            def 显示任务窗口(任务):
+                for container in 子容器字典.values():
+                    container.grid_remove()
+                    # 显示目标子容器
+                子容器字典[任务].grid()
+                notebook.select(选项卡其他任务加载)
 
             if 异环脚本运行:
                 def 异环钢琴窗口创建():
@@ -2929,7 +3241,7 @@ def 函数主程序():
                     ttk.Button(控制区, text="■ 停止演奏", command=函数停止任务).pack(side=tk.LEFT, padx=5)
                     ttk.Button(控制区, text="打开演奏文件夹", command=lambda :os.startfile( current_dir.parent / "外置配置文件夹")).pack(side=tk.LEFT, padx=5)
                     ttk.Button(控制区, text="打开说明书", command=lambda: os.startfile(current_dir / "异环钢琴自动演奏工具使用说明书.txt")).pack(side=tk.LEFT, padx=5)
-                    ttk.Button(控制区, text="MIDI推荐网站", command=lambda: webbrowser.open("https://www.midishow.com/")).pack(side=tk.LEFT, padx=5)
+                    ttk.Button(控制区, text="MIDI推荐网站", command=lambda: opener.open("https://www.midishow.com/")).pack(side=tk.LEFT, padx=5)
 
                     # ---------- 内部函数 ----------
 
@@ -2966,31 +3278,50 @@ def 函数主程序():
                     运行栏 = ttk.Frame(异环钢琴演奏子容器)
                     运行栏.grid(row=7, column=0, pady=5)
                     tk.Label(运行栏, text="工具设定音域：C2-B4/36-71", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=1, column=0)
-
-                def 显示任务窗口(任务):
-                    for container in 子容器字典.values():
-                        container.grid_remove()
-                        # 显示目标子容器
-                    子容器字典[任务].grid()
-                    notebook.select(选项卡其他任务加载)
-
-                异环钢琴窗口创建()
-
-
-
                 def 异环店长特供窗口创建():
                     文本容器 = ttk.Frame(异环店长特供子容器)
                     文本容器.grid(row=0, column=0, pady=10, sticky="w")
+                    店长特供设置容器 = ttk.Frame(文本容器)
+                    店长特供设置容器.grid(row=0, column=0, pady=10, sticky="w")
+                    店长特供设置容器1 = ttk.Frame(店长特供设置容器)
+                    店长特供设置容器1.grid(row=0, column=0, pady=10, sticky="w")
+
+                    异环店长特供点击选择变量=tk.StringVar(value="真实点击")
+
+                    创建单选框grid(current_dir, 店长特供设置容器1, "真实点击", 异环店长特供点击选择变量, "真实点击", font=("微软雅黑", 16),
+                                   位置=0, 位置2=0, 边距y=0, **单选框基础样式)
+                    创建单选框grid(current_dir, 店长特供设置容器1, "虚拟点击(非后台)", 异环店长特供点击选择变量, "虚拟点击", font=("微软雅黑", 16),
+                                   位置=0, 位置2=1, 边距x=0, 边距y=0, **单选框基础样式)
+                    店长特供设置容器1 = ttk.Frame(店长特供设置容器)
+                    店长特供设置容器1.grid(row=1, column=0, pady=10, sticky="w")
+                    tk.Label(店长特供设置容器1, text="运行次数：", font=("微软雅黑", 16), ).grid(row=0, column=0)
+
+                    异环店长特供运行次数变量 = tk.IntVar(value=999)
+
+                    tk.Spinbox(店长特供设置容器1, from_=1, to=99999, increment=10, textvariable=异环店长特供运行次数变量,
+                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=1)
+
+                    店长特供设置映射 = {
+                        "异环店长特供运行次数变量": 异环店长特供运行次数变量,
+                        "异环店长特供点击选择变量": 异环店长特供点击选择变量,
+
+                    }
 
                     def 启动异环店长特供任务():
-
+                        管理设置('保存', current_dir.parent / "外置配置文件夹" / "店长特供设置.json", 店长特供设置映射)
                         新方式集合启动任务("异环店长特供")
-                    创建按钮2grid(文本容器, f"启动任务", 启动异环店长特供任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=0, )
-                    创建按钮2grid(文本容器, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=1, 位置2=0, )
+                    店长特供设置容器1 = ttk.Frame(店长特供设置容器)
+                    店长特供设置容器1.grid(row=10, column=0, pady=(50,30), sticky="w")
+                    创建按钮2grid(店长特供设置容器1, f"启动任务",启动异环店长特供任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=1, 位置2=0, )
 
-                    tk.Label(文本容器, text="暂时只做了锤人，请携带娜娜莉并激活锤人加分天赋，\n在锤人时会占用鼠标，要刷都市体力还是推荐钓鱼\n"
-                                            "多人时任务占用鼠标频率可能过快，\n这时需要停止请使用全局停止热键:Alt+V", font=("楷体", 16, "bold", "italic"), fg="blue").grid(row=2, column=0, sticky="w")
 
+                    tk.Label(文本容器, text="会频繁占用鼠标！！！停止任务请用快捷键Alt+F12",
+                             font=("楷体", 22, "bold", "italic"), fg="red").grid(row=2, column=0, sticky="w")
+
+                    tk.Label(文本容器, text="选好关卡后启动任务\n要刷都市体力还是推荐钓鱼\n"
+                                            "真实点击会稳很多！\n",
+                             font=("楷体", 16, "bold"), fg="blue").grid(row=3, column=0, sticky="w")
+                    管理设置('加载', current_dir.parent / "外置配置文件夹" / "店长特供设置.json", 店长特供设置映射)
 
                 def 异环超强音窗口创建():
 
@@ -3033,91 +3364,23 @@ def 函数主程序():
 
                     文本容器 = ttk.LabelFrame(异环超强音子容器)
                     文本容器.grid(row=7, column=0, pady=10, sticky="w")
-                    def 加载异环超强音任务设置():
-                        if getattr(sys, 'frozen', False):
-                            current_dir = Path(sys.executable).parent.absolute()
-                        else:
-                            current_dir = Path(__file__).parent.absolute()
-                        路径 = current_dir.parent / "外置配置文件夹" / "超强音设置.json"
-
-                        try:
-                            if 路径.exists():
-                                with open(路径, 'r', encoding='utf-8') as f:
-                                    设置数据 = json.load(f)
-
-                                # 加载各项设置到对应的变量
-                                if "超强音按键长按时间" in 设置数据:
-                                    超强音按键长按时间.set(设置数据["超强音按键长按时间"])
-                                if "超强音判断相似度" in 设置数据:
-                                    超强音判断相似度.set(设置数据["超强音判断相似度"])
-                                if "超强音演奏次数变量" in 设置数据:
-                                    超强音演奏次数变量.set(设置数据["超强音演奏次数变量"])
-                                if "都市体力耗尽停下变量" in 设置数据:
-                                    都市体力耗尽停下变量.set(设置数据["都市体力耗尽停下变量"])
-
-                                if "控制键位D变量" in 设置数据:
-                                    控制键位D变量.set(设置数据["控制键位D变量"])
-                                if "控制键位F变量" in 设置数据:
-                                    控制键位F变量.set(设置数据["控制键位F变量"])
-                                if "控制键位J变量" in 设置数据:
-                                    控制键位J变量.set(设置数据["控制键位J变量"])
-                                if "控制键位K变量" in 设置数据:
-                                    控制键位K变量.set(设置数据["控制键位K变量"])
 
 
-
-                                print("超强音设置加载成功")
-                            else:
-                                print("未找到设置文件，使用默认设置")
-                        except Exception as e:
-                            print(f"加载设置时出错: {e}")
-                            # 可以选择显示错误提示
-
-                    def 保存异环超强音任务设置():
-                        if getattr(sys, 'frozen', False):
-                            current_dir = Path(sys.executable).parent.absolute()
-                        else:
-                            current_dir = Path(__file__).parent.absolute()
-
-                        路径 = current_dir.parent / "外置配置文件夹" / "超强音设置.json"
-                        脚本运行速度 = 限制脚本运行速度(脚本运行速度变量.get())
-                        睡眠倍数模块.脚本运行速度 = 脚本运行速度
-                        try:
-                            脚本运行速度 = float(脚本运行速度变量.get())
-                        except Exception as e:
-                            脚本运行速度 = 1
-                            脚本运行速度变量.set(1)
-                        try:
-                            # 确保目录存在
-                            路径.parent.mkdir(parents=True, exist_ok=True)
-
-                            # 准备要保存的数据
-                            设置数据 = {
-                                "超强音按键长按时间": 超强音按键长按时间.get(),
-                                "超强音判断相似度": 超强音判断相似度.get(),
-                                "超强音演奏次数变量": 超强音演奏次数变量.get(),
-                                "都市体力耗尽停下变量": 都市体力耗尽停下变量.get(),
-
-                                "控制键位K变量": 控制键位K变量.get(),
-                                "控制键位J变量": 控制键位J变量.get(),
-                                "控制键位F变量": 控制键位F变量.get(),
-                                "控制键位D变量": 控制键位D变量.get(),
-
-                            }
-                            # 保存到文件
-                            with open(路径, 'w', encoding='utf-8') as f:
-                                json.dump(设置数据, f, ensure_ascii=False, indent=4)
-
-                            print("超强音设置保存成功")
-                        except Exception as e:
-                            print(f"保存设置时出错: {e}")
-                            # 可以选择显示错误提示
-
+                    超强音映射 = {
+                        "超强音按键长按时间": 超强音按键长按时间,
+                        "超强音判断相似度": 超强音判断相似度,
+                        "超强音演奏次数变量": 超强音演奏次数变量,
+                        "都市体力耗尽停下变量": 都市体力耗尽停下变量,
+                        "控制键位D变量": 控制键位D变量,
+                        "控制键位F变量": 控制键位F变量,
+                        "控制键位J变量": 控制键位J变量,
+                        "控制键位K变量": 控制键位K变量,
+                    }
                     def 启动异环超强音任务():
-                        保存异环超强音任务设置()
+                        管理设置('保存', current_dir.parent / "外置配置文件夹" / "超强音设置.json", 超强音映射)
                         新方式集合启动任务("异环超强音")
 
-                    加载异环超强音任务设置()
+                    管理设置('加载', current_dir.parent / "外置配置文件夹" / "超强音设置.json", 超强音映射)
                     创建按钮2grid(文本容器, f"启动任务", 启动异环超强音任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=0, )
                     创建按钮2grid(文本容器, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=1, )
                     文本容器 = ttk.LabelFrame(异环超强音子容器)
@@ -3125,8 +3388,60 @@ def 函数主程序():
                     tk.Label(文本容器, text="不追求S随意\n但如果追求 S 评分，请最好按照以下配置：\n\n游戏最好放置前台！以获得更好的响应效果和帧率稳定”\n不出意外应该是能每次都S\n\n\n"
                                             "1.画质请调整为性能，\n\n2.在稳定帧率的前提下，帧率越高应该会表现更好，\n包括开启2倍插帧,2倍以上插帧就没有试过了\n\n3.一定要保证帧率稳定", font=("楷体", 16, "bold", "italic"), fg="blue").grid(row=2, column=0, sticky="w")
 
-                def 打开异环演示视频():
-                    webbrowser.open("https://www.bilibili.com/video/BV1dbogBaE8x/")
+                赛车鼠标选择变量 = tk.StringVar(value="后台鼠标")
+                格斗争霸赛战斗变量 = tk.BooleanVar(value=False)
+
+                def 创建只选择点击方式任务窗口(父容器, 任务名称, 提示文本):
+                    文本容器 = ttk.Frame(父容器)
+                    文本容器.grid(row=0, column=0, pady=10, sticky="w")
+                    文本容器1 = ttk.Frame(文本容器)
+                    文本容器1.grid(row=0, column=0, pady=10, sticky="w")
+
+                    创建单选框grid(current_dir, 文本容器1, "后台鼠标", 赛车鼠标选择变量, "后台鼠标", font=("微软雅黑", 16),
+                                   位置=0, 位置2=0, 边距y=0, **单选框基础样式)
+                    创建单选框grid(current_dir, 文本容器1, "前台鼠标", 赛车鼠标选择变量, "前台鼠标", font=("微软雅黑", 16),
+                                   位置=0, 位置2=1, 边距x=0, 边距y=0, **单选框基础样式)
+                    if 任务名称=="格斗争霸赛挂机":
+                        文本容器1 = ttk.Frame(文本容器)
+                        文本容器1.grid(row=1, column=0, pady=10, sticky="w")
+                        创建复选框grid(current_dir, 文本容器1, "战斗", 格斗争霸赛战斗变量,
+                                     font=("微软雅黑", 16), 位置=0, 位置2=0, 边距x=50, 边距y=20, **复选框基础样式)
+
+                    文本容器1 = ttk.Frame(文本容器)
+                    文本容器1.grid(row=2, column=0, pady=10, sticky="w")
+                    配置字典={"赛车鼠标选择变量": 赛车鼠标选择变量,"格斗争霸赛战斗变量": 格斗争霸赛战斗变量,}
+                    def 启动任务():
+                        管理设置('保存', current_dir.parent / "外置配置文件夹" / "异环挂机赛车.json", 配置字典)
+                        新方式集合启动任务(任务名称)
+
+                    创建按钮2grid(文本容器1, f"启动任务", 启动任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=1, 位置2=0)
+                    创建按钮2grid(文本容器1, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=1, 位置2=1)
+
+                    文本容器1 = ttk.Frame(文本容器)
+                    文本容器1.grid(row=99, column=0, pady=10, sticky="w")
+                    tk.Label(文本容器1, text=提示文本,
+                             font=("楷体", 16, "bold", "italic"), fg="blue").grid(row=2, column=0, sticky="w")
+                    if 任务名称 == "九九九夜刷纽扣等级" or 任务名称 == "渔获大作战":
+                        if 任务名称 == "九九九夜刷纽扣等级":
+                            图片路径 = Path(rf"{current_dir}\异环图片\999\任务启动地点.png")
+                        elif 任务名称 == "渔获大作战":
+
+                            图片路径 = Path(rf"{current_dir}\异环图片\渔获大作战\活动_1280x720.png")
+                        原始图片 = Image.open(图片路径)
+                        宽, 高 = 原始图片.size
+                        缩放后图片 = 原始图片.resize((int(宽 * 0.75), int(高 * 0.75)), Image.Resampling.LANCZOS)
+                        图片对象 = ImageTk.PhotoImage(缩放后图片)
+
+                        # 创建显示图片的 Label，放在文本容器1的 row=1, column=0
+                        图片标签 = tk.Label(文本容器1, image=图片对象)
+                        图片标签.grid(row=3, column=0, sticky="w")
+                        # 必须保持对图片对象的引用，防止被垃圾回收
+                        图片标签.image = 图片对象
+
+
+                    管理设置('加载', current_dir.parent / "外置配置文件夹" / "异环挂机赛车.json", 配置字典)
+
+
                 def 异环钓鱼窗口创建():
                     文本容器 = ttk.LabelFrame(异环钓鱼子容器)
                     文本容器.grid(row=0, column=0, pady=10,sticky="w")
@@ -3149,12 +3464,16 @@ def 函数主程序():
                     卖鱼容器 = ttk.Frame(文本容器)
                     卖鱼容器.grid(row=5, column=0, pady=10, sticky="w")
 
-                    tk.Label(卖鱼容器, text="判断区域识图相似度：", font=("微软雅黑", 16), ).grid(row=0, column=2)
-                    判断区域识图相似度变量 = tk.DoubleVar(value=0.9)
-                    tk.Spinbox(卖鱼容器, from_=0.5, to=1, increment=0.052, textvariable=判断区域识图相似度变量,
-                               font=("微软雅黑", 16), relief="solid", width=5).grid(row=0, column=3)
-                    text = "默认0.9，\n需要到和判断区域颜色相近的区域钓鱼请尝试提高相似度\n还是不行的话就没有办法了"
-                    创建按钮2grid(卖鱼容器, "❓", lambda 文本=text: 截图方式提示窗口(文本, 标题="判断区域识图相似度"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=4, )
+
+                    钓鱼算法变量 = tk.StringVar(value="稳定跟随识图算法")
+                    tk.Label(卖鱼容器, text="钓鱼算法选择：", font=("微软雅黑", 16), ).grid(row=0, column=1)
+                    ttk.Combobox(卖鱼容器, textvariable=钓鱼算法变量,
+                                 values=["稳定跟随识图算法","稳定跟随找色算法", "老识图算法(兼容)"],width=17 ,font=("楷体", 16, "bold"),
+                foreground="red",).grid(row=0, column=2)
+
+                    text = ("推荐使用稳定跟随识图算法，在钓鱼时如果出现游标不动或者游标在一直判定区域外，请先排查滤镜等或者更换钓鱼点位\n\n"
+                            "还是不行的话就请和我(作者)反馈，也可以尝试，老识图算法与稳定跟随找色算法\n稳定跟随找色算法由GitHub用户lihaideyizhizhu提供")
+                    创建按钮2grid(卖鱼容器, "❓", lambda 文本=text: 截图方式提示窗口(文本, 标题="钓鱼算法选择"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=4, )
                     tk.Label(卖鱼容器, text="\u3000识图判断间隔(秒)：", font=("微软雅黑", 16), ).grid(row=0, column=5)
                     异环钓鱼识图判断频率变量 = tk.DoubleVar(value=0.05)
                     tk.Spinbox(卖鱼容器, from_=0.001, to=999, increment=0.005, textvariable=异环钓鱼识图判断频率变量,
@@ -3211,102 +3530,24 @@ def 函数主程序():
                     #tk.Label(文本容器, text="买鱼饵只会买万能鱼饵(售价5贝壳)，\n购买规则为：钓100次买饵就买2组99，钓200次买饵就买3组99，以此类推\n所以如果你要开启买鱼饵，必须装备万能鱼饵去钓鱼，\n卖鱼买饵都有失败卡住重试机制，触发重试时间应该不超过30秒", font=("楷体", 16, "bold", "italic"), fg="green").grid(row=0, column=4, sticky="w")
                     文本容器 = ttk.LabelFrame(异环钓鱼子容器)
                     文本容器.grid(row=3, column=0, pady=10,sticky="w")
-
-                    def 加载异环钓鱼设置():
-                        if getattr(sys, 'frozen', False):
-                            current_dir = Path(sys.executable).parent.absolute()
-                        else:
-                            current_dir = Path(__file__).parent.absolute()
-                        路径 = current_dir / "异环图片" / "钓鱼" / "钓鱼设置.json"
-
-                        try:
-                            if 路径.exists():
-                                with open(路径, 'r', encoding='utf-8') as f:
-                                    设置数据 = json.load(f)
-
-                                # 加载各项设置到对应的变量
-                                if "钓鱼次数" in 设置数据:
-                                    异环钓鱼次数.set(设置数据["钓鱼次数"])
-                                if "异环钓鱼时间" in 设置数据:
-                                    异环钓鱼时间.set(设置数据["异环钓鱼时间"])
-                                if "判断频率" in 设置数据:
-                                    异环钓鱼识图判断频率变量.set(设置数据["判断频率"])
-                                if "钓多少次卖鱼" in 设置数据:
-                                    钓多少次卖鱼.set(设置数据["钓多少次卖鱼"])
-                                if "钓多少次买饵" in 设置数据:
-                                    钓多少次买饵.set(设置数据["钓多少次买饵"])
-                                if "异环钓鱼运行完毕后关闭游戏变量" in 设置数据:
-                                    异环钓鱼运行完毕后关闭游戏变量.set(设置数据["异环钓鱼运行完毕后关闭游戏变量"])
-                                if "异环钓鱼运行完毕后电脑关机变量" in 设置数据:
-                                    异环钓鱼运行完毕后电脑关机变量.set(设置数据["异环钓鱼运行完毕后电脑关机变量"])
-
-                                if "异环钓鱼上钩截图变量" in 设置数据:
-                                    异环钓鱼上钩截图变量.set(设置数据["异环钓鱼上钩截图变量"])
-                                if "异环鱼舱满卖鱼变量" in 设置数据:
-                                    异环鱼舱满卖鱼变量.set(设置数据["异环鱼舱满卖鱼变量"])
-                                if "异环饵空卖饵变量" in 设置数据:
-                                    异环饵空卖饵变量.set(设置数据["异环饵空卖饵变量"])
-                                if "判断区域识图相似度变量" in 设置数据:
-                                    判断区域识图相似度变量.set(设置数据["判断区域识图相似度变量"])
-
-
-
-                                print("钓鱼设置加载成功")
-                            else:
-                                print("未找到设置文件，使用默认设置")
-                        except Exception as e:
-                            print(f"加载设置时出错: {e}")
-                            # 可以选择显示错误提示
-
-                    def 保存异环钓鱼设置():
-                        if getattr(sys, 'frozen', False):
-                            current_dir = Path(sys.executable).parent.absolute()
-                        else:
-                            current_dir = Path(__file__).parent.absolute()
-
-                        路径 = current_dir / "异环图片" / "钓鱼" / "钓鱼设置.json"
-                        脚本运行速度 = 限制脚本运行速度(脚本运行速度变量.get())
-                        睡眠倍数模块.脚本运行速度 = 脚本运行速度
-                        try:
-                            脚本运行速度 = float(脚本运行速度变量.get())
-                        except Exception as e:
-                            脚本运行速度 = 1
-                            脚本运行速度变量.set(1)
-                        try:
-                            # 确保目录存在
-                            路径.parent.mkdir(parents=True, exist_ok=True)
-
-                            # 准备要保存的数据
-                            设置数据 = {
-                                "钓鱼次数": 异环钓鱼次数.get(),
-                                "异环钓鱼时间": 异环钓鱼时间.get(),
-                                "判断频率": 异环钓鱼识图判断频率变量.get(),
-                                "异环钓鱼运行完毕后关闭游戏变量": 异环钓鱼运行完毕后关闭游戏变量.get(),
-                                "异环钓鱼运行完毕后电脑关机变量": 异环钓鱼运行完毕后电脑关机变量.get(),
-
-
-                                "钓多少次卖鱼": 钓多少次卖鱼.get(),
-                                "钓多少次买饵": 钓多少次买饵.get(),
-                                "异环钓鱼上钩截图变量": 异环钓鱼上钩截图变量.get(),
-                                "异环鱼舱满卖鱼变量": 异环鱼舱满卖鱼变量.get(),
-                                "异环饵空卖饵变量": 异环饵空卖饵变量.get(),
-                                "判断区域识图相似度变量": 判断区域识图相似度变量.get(),
-
-                            }
-                            # 保存到文件
-                            with open(路径, 'w', encoding='utf-8') as f:
-                                json.dump(设置数据, f, ensure_ascii=False, indent=4)
-
-                            print("钓鱼设置保存成功")
-                        except Exception as e:
-                            print(f"保存设置时出错: {e}")
-                            # 可以选择显示错误提示
-
+                    钓鱼映射 = {
+                        "钓鱼次数": 异环钓鱼次数,
+                        "异环钓鱼时间": 异环钓鱼时间,
+                        "判断频率": 异环钓鱼识图判断频率变量,
+                        "钓多少次卖鱼": 钓多少次卖鱼,
+                        "钓多少次买饵": 钓多少次买饵,
+                        "异环钓鱼运行完毕后关闭游戏变量": 异环钓鱼运行完毕后关闭游戏变量,
+                        "异环钓鱼运行完毕后电脑关机变量": 异环钓鱼运行完毕后电脑关机变量,
+                        "异环钓鱼上钩截图变量": 异环钓鱼上钩截图变量,
+                        "异环鱼舱满卖鱼变量": 异环鱼舱满卖鱼变量,
+                        "异环饵空卖饵变量": 异环饵空卖饵变量,
+                        "钓鱼算法变量": 钓鱼算法变量,
+                    }
                     def 启动异环钓鱼任务():
-                        保存异环钓鱼设置()
-                        新方式集合启动任务("异环钓鱼")
 
-                    加载异环钓鱼设置()
+                        管理设置('保存', current_dir / "异环图片" / "钓鱼" / "钓鱼设置.json", 钓鱼映射)
+                        新方式集合启动任务("异环钓鱼")
+                    管理设置('加载', current_dir / "异环图片" / "钓鱼" / "钓鱼设置.json", 钓鱼映射)
                     创建按钮2grid(文本容器, f"启动任务", 启动异环钓鱼任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=0, )
                     创建按钮2grid(文本容器, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=0, 位置2=2, )
                     创建按钮2grid(文本容器, f"帮助说明",
@@ -3321,24 +3562,134 @@ def 函数主程序():
                     文本容器.grid(row=4, column=0, pady=10,sticky="w")
 
 
-                    tk.Label(文本容器, text="1.请确保钓鱼背景和判断区域不相似(比如背景是海，都是蓝色)，\n不然会判断失败，如果相似请更换钓鱼点位\n\n关闭游戏和显卡驱动插帧，AMD显卡请在显卡驱动和游戏关闭FSR等相关功能", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=0, column=0, sticky="w")
+                    tk.Label(文本容器, text="1.请确保钓鱼背景和判断区域不相似(比如背景是海，都是蓝色)，"
+                                            "\n不然会判断失败，如果相似请更换钓鱼点位\n\n关闭游戏和显卡驱动插帧，AMD显卡请在显卡驱动和游戏关闭FSR等相关功能", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=0, column=0, sticky="w")
 
-                    #tk.Label(文本容器, text="\n\n异环虽然能后台传递鼠标坐标，但不知道为什么很多地方真实鼠标不在那个位置就不能点击\n"
-                                            #"而有的地方则可以不用真实鼠标在那个地方就能点击，很迷，所以卖鱼买饵时会占用一点点鼠标", font=("楷体", 16, "bold", "italic"), fg="red").grid(row=9, column=0,sticky="w")
 
+                def 异环呗果窗口创建():
+                    文本容器 = ttk.LabelFrame(异环呗果任务子容器)
+                    文本容器.grid(row=0, column=0, pady=10,sticky="w")
+                    卖鱼容器 = ttk.LabelFrame(文本容器)
+                    卖鱼容器.grid(row=0, column=0, pady=10, sticky="w")
+                    创建单选框grid(current_dir, 卖鱼容器, "后台鼠标", 赛车鼠标选择变量, "后台鼠标", font=("微软雅黑", 16),
+                                   位置=0, 位置2=0, 边距y=0, **单选框基础样式)
+                    创建单选框grid(current_dir, 卖鱼容器, "前台鼠标", 赛车鼠标选择变量, "前台鼠标", font=("微软雅黑", 16),
+                                   位置=0, 位置2=1, 边距x=0, 边距y=0, **单选框基础样式)
+
+                    回复点赞容器 = ttk.LabelFrame(文本容器)
+                    回复点赞容器.grid(row=1, column=0, pady=10, sticky="w")
+
+                    tk.Label(回复点赞容器, text="回复点赞他人帖子任务:", font=("微软雅黑", 16), ).grid(row=0, column=0,sticky="w")
+
+
+                    水贴容器 = ttk.Frame(回复点赞容器)
+                    水贴容器.grid(row=5, column=0, pady=10, sticky="w")
+
+                    水贴开关变量 = tk.IntVar(value=0)
+                    创建复选框grid(current_dir, 水贴容器, "水贴", 水贴开关变量,
+                                   font=("微软雅黑", 16), 位置=0, 位置2=0,   边距x=10,边距y=0, **复选框基础样式)
+                    水贴时输入互关互赞文字变量 = tk.IntVar(value=0)
+                    创建复选框grid(current_dir, 水贴容器, "水贴时输入互关互赞文字", 水贴时输入互关互赞文字变量,
+                                   font=("微软雅黑", 16), 位置=0, 位置2=1,边距x=10, 边距y=0, **复选框基础样式)
+                    水贴容器 = ttk.Frame(回复点赞容器)
+                    水贴容器.grid(row=6, column=0, pady=10, sticky="w")
+
+                    只点赞变量 = tk.IntVar(value=0)
+                    创建复选框grid(current_dir, 水贴容器, "只点赞带有,互,回,刷,字样的帖子", 只点赞变量,
+                                   font=("微软雅黑", 16), 位置=0, 位置2=2,边距x=10, 边距y=0, **复选框基础样式)
+                    水贴容器 = ttk.Frame(回复点赞容器)
+                    水贴容器.grid(row=7, column=0, pady=10, sticky="w")
+
+                    回复自己容器 = ttk.LabelFrame(文本容器)
+                    回复自己容器.grid(row=2, column=0, pady=10, sticky="w")
+
+                    tk.Label(回复自己容器, text="回复自己第一个帖子任务:", font=("微软雅黑", 16), ).grid(row=0, column=0)
+                    回复自己容器 = ttk.LabelFrame(回复自己容器)
+                    回复自己容器.grid(row=2, column=0, pady=10, sticky="w")
+                    启动异环呗果任务变量=tk.IntVar(value=0)
+                    呗果映射 = {
+                        "水贴开关变量":水贴开关变量,
+                        "水贴时输入互关互赞文字变量": 水贴时输入互关互赞文字变量,
+                        "只点赞变量": 只点赞变量,
+                        "启动异环呗果任务变量": 启动异环呗果任务变量,
+                    }
+                    def 启动异环呗果任务(任务详细选择):
+                        if 任务详细选择=="他人帖子":
+                            启动异环呗果任务变量.set(0)
+                        else:
+                            启动异环呗果任务变量.set(1)
+                        管理设置('保存', current_dir.parent / "外置配置文件夹" / "异环挂机赛车.json", {"赛车鼠标选择变量": 赛车鼠标选择变量})
+                        管理设置('保存', current_dir / "异环图片" / "呗果" / "呗果设置.json", 呗果映射)
+                        新方式集合启动任务("异环呗果")
+                    管理设置('加载', current_dir / "异环图片" / "呗果" / "呗果设置.json", 呗果映射)
+                    创建按钮2grid(水贴容器, f"启动任务", lambda :启动异环呗果任务("他人帖子"), 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=2, 位置2=0, )
+                    创建按钮2grid(水贴容器, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=2, 位置2=1, )
+
+                    创建按钮2grid(回复自己容器, f"启动任务", lambda: 启动异环呗果任务("自己帖子"), 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=2, 位置2=0, )
+                    创建按钮2grid(回复自己容器, f"停止任务", 函数停止任务, 字体配置=("微软雅黑", int(14)), width=11, height=1, 位置=2, 位置2=1, )
+                    文本容器 = ttk.Frame(异环钓鱼子容器)
+                    文本容器.grid(row=4, column=0, pady=10,sticky="w")
+
+
+                    管理设置('加载', current_dir.parent / "外置配置文件夹" / "异环挂机赛车.json", {"赛车鼠标选择变量": 赛车鼠标选择变量})
+
+                异环钢琴窗口创建()
                 异环钓鱼窗口创建()
                 异环店长特供窗口创建()
                 异环超强音窗口创建()
+                创建只选择点击方式任务窗口(
+                    父容器=异环赛车挂机子容器,
+                    任务名称="异环赛车挂机",
+                    提示文本="该功能不是暗黑赛车活动，如果需要暗黑赛车活动功能，那你选错功能了\n该功能会参加常驻赛车在线匹配，等待结束后继续循环匹配\n用来挂机上分\n点击出现不稳定请更换为前台鼠标"
+                )
+                创建只选择点击方式任务窗口(
+                    父容器=异环格斗俱乐部子容器,
+                    任务名称="格斗争霸赛挂机",
+                    提示文本="都市闲趣中的格斗俱乐部玩法挂机"
+                )
+                创建只选择点击方式任务窗口(
+                    父容器=九九九夜子容器,
+                    任务名称="九九九夜刷纽扣等级",
+                    提示文本="把角色薄荷放置在2号位，前往如下地点把地图缩放调整到最大后，启动任务，\n作用是刷等级和纽扣以及装备\n前台鼠标被移动可能会影响任务正常进行，届时请重新启动任务"
+                )
+                创建只选择点击方式任务窗口(
+                    父容器=徊影憧憬活动挂机子容器,
+                    任务名称="徊影憧憬活动挂机",
+                    提示文本="该功能会参加躲猫猫活动，也就是徊影憧憬活动，挂机等待结束后继续循环匹配\n点击出现不稳定请更换为前台鼠标"
+                )
+                创建只选择点击方式任务窗口(
+                    父容器=渔获大作战子容器,
+                    任务名称="渔获大作战",
+                    提示文本="会频繁占用鼠标，停止任务请使用快捷键：Alt+F12"
+                )
+                异环呗果窗口创建()
                 任务1选择变量=None
                 任务2选择变量 = None
-                创建按钮2grid(选项卡任务列表容器1_2, "异环钢琴", lambda: 执行器.提交任务(显示任务窗口, "异环钢琴", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=小功能位置列表[5], 位置2=1)
-                创建按钮2grid(选项卡任务列表容器1_2, "异环钓鱼", lambda: 执行器.提交任务(显示任务窗口,"异环钓鱼", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=小功能位置列表[6], 位置2=1)
-                创建按钮2grid(选项卡任务列表容器1_2, "店长特供", lambda: 执行器.提交任务(显示任务窗口,"异环店长特供", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=6, 位置2=1)
-                创建按钮2grid(选项卡任务列表容器1_2, "超强音", lambda: 执行器.提交任务(显示任务窗口,"异环超强音", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=7, 位置2=1)
+                创建按钮2grid(选项卡任务列表容器1_2, "异环钢琴", lambda: 执行器.提交任务(显示任务窗口, "异环钢琴演奏子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=0, 位置2=0)
+                创建按钮2grid(选项卡任务列表容器1_2, "异环钓鱼", lambda: 执行器.提交任务(显示任务窗口,"异环钓鱼子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=0, 位置2=1)
+                创建按钮2grid(选项卡任务列表容器1_2, "店长特供", lambda: 执行器.提交任务(显示任务窗口,"异环店长特供子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=1, 位置2=0)
+                创建按钮2grid(选项卡任务列表容器1_2, "超强音", lambda: 执行器.提交任务(显示任务窗口,"异环超强音子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=1, 位置2=1)
+
+                创建按钮2grid(选项卡任务列表容器1_2, "赛车挂机", lambda: 执行器.提交任务(显示任务窗口, "异环赛车挂机子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=2, 位置2=0)
+                创建按钮2grid(选项卡任务列表容器1_2, "呗果任务", lambda: 执行器.提交任务(显示任务窗口, "异环呗果任务子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=2, 位置2=1)
+
+                创建按钮2grid(选项卡任务列表容器1_2, "格斗俱乐部", lambda: 执行器.提交任务(显示任务窗口, "异环格斗俱乐部子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=0)
+                创建按钮2grid(选项卡任务列表容器1_2, "九百九十九夜",
+                              lambda: 执行器.提交任务(显示任务窗口, "九九九夜子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=1)
+                创建按钮2grid(选项卡任务列表容器1_2, "徊影憧憬", lambda: 执行器.提交任务(显示任务窗口, "徊影憧憬活动挂机子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=4, 位置2=0)
+                创建按钮2grid(选项卡任务列表容器1_2, "渔获大作战",
+                              lambda: 执行器.提交任务(显示任务窗口, "渔获大作战子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=5, 位置2=0)
+
 
                 def auto_battle_task(设置任务名,设置任务编号=1):
                     try:
@@ -3348,35 +3699,43 @@ def 函数主程序():
                             任务2选择变量.set(设置任务名)
                         else:
                             任务1选择变量.set(设置任务名)
-                        执行器.提交任务(显示任务窗口, "异环其他任务", 异步=False)
+                        执行器.提交任务(显示任务窗口, "异环其他任务子容器", 异步=False)
                     except Exception as e:
                         print(e)
 
                 创建按钮2grid(选项卡任务列表容器1_2, "自动战斗", lambda :auto_battle_task("自动战斗"),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=10, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=0)
                 创建按钮2grid(选项卡任务列表容器1_2, "自动闪避弹刀", lambda: auto_battle_task("自动闪避弹刀",2),
                               字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=1)
 
 
                 创建按钮2grid(选项卡任务列表容器1_2, "自动按F", lambda :auto_battle_task("自动按F"),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=9, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=12, 位置2=0)
 
-                创建按钮2grid(选项卡任务列表容器1_2, "更多任务", lambda: 执行器.提交任务(显示任务窗口,"异环其他任务", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=3, 位置2=2)
+                创建按钮2grid(选项卡任务列表容器1_2, "重置闪避跑图", lambda: auto_battle_task("[txt]切人重置闪避冷却赶路"),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=12, 位置2=1)
+
+                创建按钮2grid(选项卡任务列表容器1_2, "更多任务", lambda: 执行器.提交任务(显示任务窗口,"异环其他任务子容器", 异步=False),
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=10, 位置2=0)
 
 
                 def 手动检查更新():
-                    网页网址 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
+
+                    网站列表 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
                     if 异环脚本运行:
-                        网页网址 = "https://github.com/nokiruy/Noki-NTE-Auto/releases"
-                    if 幻塔脚本运行:
-                        网页网址 = "https://github.com/nokiruy/Noki-Hotta-Auto/releases"
-                    文本 = 检查更新(f"v{current_version}", 网页网址)
+                        网站列表 = [
+                            "https://gitee.com/nokiruy/noki-nte-auto/releases",
+                            "https://github.com/nokiruy/Noki-NTE-Auto/releases",
+                        ]
+                    elif 幻塔脚本运行:
+                        网站列表 = "https://github.com/nokiruy/Noki-Hotta-Auto/releases"
+
+                    文本 = 检查更新(f"v{current_version}", 网站列表)
                     print(文本)
                     if 文本 != False:
                         版本更新提示窗口(文本, 标题="版本更新提示")
                 创建按钮2grid(选项卡任务列表容器1_2, "检查更新", lambda: 执行器.提交任务(手动检查更新,  异步=True),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=11, 位置2=2)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=9, 位置2=1)
 
                 选项卡任务列表容器1_2 = ttk.Frame(选项卡任务列表容器1)
                 选项卡任务列表容器1_2.grid(row=7, column=0, padx=0, pady=0)
@@ -3390,10 +3749,23 @@ def 函数主程序():
                 GPU加速识图容器 = ttk.Frame(选项卡任务列表容器1_2)
                 GPU加速识图容器.grid(row=2, column=0, padx=0, pady=0, sticky=tk.W, )
                 GPU加速识图变量 = tk.IntVar(value=0)
-                创建复选框grid(current_dir=current_dir, 归属=GPU加速识图容器, 标签="GPU加速OpenCV", 绑定变量=GPU加速识图变量, font=("微软雅黑", 14, "bold",), 位置=0, 位置2=0, 边距x=10, 边距y=0, **复选框基础样式)
-                创建按钮2grid(GPU加速识图容器, "❓", lambda 文本="稍微好一点的cpu就不用开启这个了\n识图速度慢，或者想在高频识图任务有更好表现的可以尝试开启\n比如超强音任务": 截图方式提示窗口(文本, 标题="GPU加速OpenCV"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=1, )
-
+                #创建复选框grid(current_dir=current_dir, 归属=GPU加速识图容器, 标签="GPU加速OpenCV", 绑定变量=GPU加速识图变量, font=("微软雅黑", 14, "bold",), 位置=0, 位置2=0, 边距x=10, 边距y=0, **复选框基础样式)
+                #创建按钮2grid(GPU加速识图容器, "❓", lambda 文本="稍微好一点的cpu就不用开启这个了\n识图速度慢，或者想在高频识图任务有更好表现的可以尝试开启\n比如超强音任务":
+                #截图方式提示窗口(文本, 标题="GPU加速OpenCV"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=1, )
                 tk.Label(选项卡任务列表容器1_2, text="", font=("微软雅黑", 16)).grid(row=3, column=0, sticky=tk.W, )
+
+                GPU加速识图容器 = ttk.Frame(选项卡任务列表容器1_2)
+                GPU加速识图容器.grid(row=4, column=0, padx=0, pady=0, sticky=tk.W, )
+
+                创建复选框grid(current_dir=current_dir, 归属=GPU加速识图容器, 标签="启动结束提醒弹窗", 绑定变量=popup_enabled, font=("微软雅黑", 14, "bold",), 位置=0, 位置2=0, 边距x=10, 边距y=0, **复选框基础样式)
+                创建按钮2grid(GPU加速识图容器, "❓", lambda 文本="任务启动和结束会有一个黑底红字的弹窗\n该弹窗由于提醒任务启动和结束\n如果该弹窗造成了游戏卡顿或者其他问题则推荐关闭，否则强烈推荐开启\n"
+                                                                "关闭后只会在控制台(cmd)窗口打印信息和播放一个声音":
+                截图方式提示窗口(文本, 标题="启动结束提醒弹窗"), 字体配置=("微软雅黑", 14), width=2, height=1, 位置=0, 位置2=1, )
+                GPU加速识图容器 = ttk.Frame(选项卡任务列表容器1_2)
+                GPU加速识图容器.grid(row=5, column=0, padx=0, pady=0, sticky=tk.W, )
+                tk.Label(GPU加速识图容器, text="如任务开始和结束，游戏有卡顿，\n请关闭弹窗提醒功能", font=("微软雅黑", 13), foreground="red").grid(row=0, column=0, sticky=tk.W, )
+
+                #tk.Label(选项卡任务列表容器1_2, text="", font=("微软雅黑", 16)).grid(row=50, column=0, sticky=tk.W, )
                 from 后台键鼠 import set_process_priority,find_pids_by_exe
                 异环工具优先级配置文件= current_dir.parent / "外置配置文件夹"/"进程优先级.json"
                 if getattr(sys, 'frozen', False):
@@ -3401,7 +3773,7 @@ def 函数主程序():
                 else:
                     异环工具路径 = None  # 非打包环境，不需要操作该 exe
                 异环工具优先级容器 = ttk.Frame(选项卡任务列表容器1_2)
-                异环工具优先级容器.grid(row=4, column=0, padx=0, pady=0)
+                异环工具优先级容器.grid(row=56, column=0, padx=0, pady=0)
                 tk.Label(异环工具优先级容器, text="进程优先级:", font=("微软雅黑", 16)).grid(row=0, column=0, sticky=tk.W, )
                 异环工具优先级变量=tk.StringVar(value="正常（默认）")
 
@@ -3481,8 +3853,11 @@ def 函数主程序():
                 选项卡任务列表中间容器 = ttk.Frame(选项卡任务列表)
                 选项卡任务列表中间容器.grid(row=0, column=1, padx=0, pady=0, sticky=tk.N)
 
-                tk.Label(选项卡任务列表中间容器, text=
-                "工具免费\n如果是付费购买\n请要求商家退款\n并帮忙举报倒卖", font=("楷体", 14, "bold", ), fg="red").grid(row=12, column=1, )
+                异环工具优先级容器 = ttk.Frame(选项卡任务列表容器1_2)
+                异环工具优先级容器.grid(row=100, column=0, padx=0, pady=50)
+                tk.Label(异环工具优先级容器, text=
+                "全部任务停止热键：Alt+F12", font=("楷体", 13, "bold"), fg="green").grid(row=0, column=0, )
+
 
                 tk.Label(选项卡任务列表中间容器, text=
                 "\n\n点击查看工具演示\n"
@@ -3504,19 +3879,18 @@ def 函数主程序():
                 任务4选择变量 = tk.StringVar(value="鼠标快速打开esc界面")
 
                 识图间隔变量 = tk.DoubleVar(value=0.1)
+                自动按F选择变量 = tk.StringVar(value="识别到F再按")
                 变轨技能自定义按键 = tk.StringVar(value="E")
                 极轨终结自定义按键 = tk.StringVar(value="Q")
                 弧盘技能自定义按键 = tk.StringVar(value="R")
+                切人间隔变量 = tk.DoubleVar(value=4.0)
+                鼠标侧键触发方式变量=tk.StringVar(value="点击启动/停止")
 
                 # 四个任务的线程事件（每个任务独立）
-                线程事件停止循环1 = threading.Event()
-                线程事件任务循环1 = threading.Event()
-                线程事件停止循环2 = threading.Event()
-                线程事件任务循环2 = threading.Event()
-                线程事件停止循环3 = threading.Event()
-                线程事件任务循环3 = threading.Event()
-                线程事件停止循环4 = threading.Event()
-                线程事件任务循环4 = threading.Event()
+
+                弹刀动作自定义变量 = tk.StringVar(value="Q")
+                闪避动作自定义变量 = tk.StringVar(value="R")
+
 
                 # 用于保存和加载的映射（辅助）
                 任务选择变量列表 = [任务1选择变量, 任务2选择变量, 任务3选择变量, 任务4选择变量]
@@ -3529,19 +3903,20 @@ def 函数主程序():
 
                 异环自定义txt任务文件夹=current_dir.parent / "外置配置文件夹"/"txt自定义脚本"
 
-                任务状态标签列表=[]
-                def 函数保存其他任务设置():
-                    路径 = current_dir.parent / "外置配置文件夹" / "任务选择设置.json"
-                    设置数据 = {
-                        "识图间隔变量": 识图间隔变量.get(),
-                        "变轨技能自定义按键": 变轨技能自定义按键.get(),
-                        "极轨终结自定义按键": 极轨终结自定义按键.get(),
-                        "弧盘技能自定义按键": 弧盘技能自定义按键.get(),
-                    }
-                    for i, var in enumerate(任务选择变量列表, 1):
-                        设置数据[f"任务{i}选择变量"] = var.get()
-                    with open(路径, 'w', encoding='utf-8') as f:
-                        json.dump(设置数据, f, ensure_ascii=False, indent=4)
+                完整映射 = {
+                    "识图间隔变量": 识图间隔变量,
+                    "自动按F选择变量": 自动按F选择变量,
+                    "变轨技能自定义按键": 变轨技能自定义按键,
+                    "极轨终结自定义按键": 极轨终结自定义按键,
+                    "弧盘技能自定义按键": 弧盘技能自定义按键,
+                    "切人间隔变量": 切人间隔变量,
+                    "弹刀动作自定义变量": 弹刀动作自定义变量,
+                    "闪避动作自定义变量": 闪避动作自定义变量,
+                    "鼠标侧键触发方式变量": 鼠标侧键触发方式变量,
+                }
+                for i, var in enumerate(任务选择变量列表, 1):
+                    完整映射[f"任务{i}选择变量"] = var
+                管理设置('加载', current_dir.parent / "外置配置文件夹" / "任务选择设置.json", 完整映射)
                 def 创建单个任务界面(父容器, 行, 列, 任务编号, 默认值, 热键提示文本):
                     """
                     在指定网格位置创建一个完整的任务选择区域（下拉框、动态配置、提示标签等）
@@ -3567,7 +3942,7 @@ def 函数主程序():
                     else:
                         子容器padx = 0
                     if 任务编号 in [1,2]:
-                        子容器pady=(0,100)
+                        子容器pady=(0,20)
                     else:
                         子容器pady = 0
                     子容器.grid(row=行, column=列, pady=子容器pady, padx=子容器padx,sticky="w")
@@ -3598,7 +3973,7 @@ def 函数主程序():
 
                     刷新按钮 = ttk.Button(容器, text="刷新", command=刷新任务列表)
                     刷新按钮.grid(row=0, column=2)
-                    刷新任务列表()
+                    执行器.提交任务(刷新任务列表, 异步=False)
 
                     动态配置容器 = ttk.Frame(文本容器)
                     动态配置容器.grid(row=1, column=0, pady=5, sticky="w")
@@ -3621,11 +3996,21 @@ def 函数主程序():
                         当前选择 = 选择变量.get()
 
                         if 当前选择 == "自动按F":
-                            ttk.Label(动态配置容器, text="识图间隔：", font=("微软雅黑", 16)).grid(row=0, column=0, padx=5, sticky="w")
-                            tk.Spinbox(动态配置容器, from_=0.001, to=5.0, increment=0.05,
+                            自动按F容器 = ttk.Frame(动态配置容器)
+                            自动按F容器.grid(row=0, column=0)
+
+
+                            创建单选框grid(current_dir, 自动按F容器, "识别到F再按", 自动按F选择变量, "识别到F再按", font=("微软雅黑", 16),
+                                           位置=0, 位置2=0, 边距x=(0,100), 边距y=0, **单选框基础样式)
+                            创建单选框grid(current_dir, 自动按F容器, "一直按", 自动按F选择变量, "一直按", font=("微软雅黑", 16),
+                                           位置=0, 位置2=1, 边距x=0, 边距y=0, **单选框基础样式)
+                            自动按F容器 = ttk.Frame(动态配置容器)
+                            自动按F容器.grid(row=1, column=0)
+                            ttk.Label(自动按F容器, text="识图间隔：", font=("微软雅黑", 16)).grid(row=0, column=0, padx=5, sticky="w")
+                            tk.Spinbox(自动按F容器, from_=0.001, to=5.0, increment=0.05,
                                        textvariable=识图间隔变量, font=("微软雅黑", 16),
                                        relief="solid", width=5).grid(row=0, column=1, padx=5)
-                            ttk.Label(动态配置容器, text="(单位：秒，支持小数)", font=("微软雅黑", 10),
+                            ttk.Label(自动按F容器, text="(单位：秒，支持小数)", font=("微软雅黑", 10),
                                       foreground="gray").grid(row=0, column=2, columnspan=2, sticky="w", padx=5)
 
                         elif 当前选择 == "自动战斗":
@@ -3635,20 +4020,74 @@ def 函数主程序():
                             tk.Entry(动态配置容器, textvariable=极轨终结自定义按键, width=10).grid(row=1, column=1, padx=5, pady=5, sticky="w")
                             ttk.Label(动态配置容器, text="弧盘技能按键：").grid(row=2, column=0, padx=5, pady=5, sticky="e")
                             tk.Entry(动态配置容器, textvariable=弧盘技能自定义按键, width=10).grid(row=2, column=1, padx=5, pady=5, sticky="w")
-                        elif 当前选择 == "自动闪避弹刀":
 
-                            ttk.Label(动态配置容器, text="(提醒：通过音频波形判定，电脑和游戏不能静音，\n最好也不要播放除了异环游戏外的其他声音)",
-                                      font=("微软雅黑", 14), foreground="gray").grid(row=0, column=0,  sticky="w", padx=5)
-                            """     自动闪避弹刀容器 = ttk.Frame(动态配置容器)
-                            自动闪避弹刀容器.grid(row=1, column=0, pady=5, sticky="w")
-                            ttk.Label(自动闪避弹刀容器, text="带通能量占比：", font=("微软雅黑", 16)).grid(row=0, column=0, padx=5, sticky="w")
-                            tk.Spinbox(自动闪避弹刀容器, from_=0.001, to=5.0, increment=0.05,
-                                       textvariable=识图间隔变量, font=("微软雅黑", 16),
-                                       relief="solid", width=5).grid(row=0, column=1, padx=5)
-                            ttk.Label(自动闪避弹刀容器, text="高通截止频率：", font=("微软雅黑", 16)).grid(row=1, column=0, padx=5, sticky="w")
-                            tk.Spinbox(自动闪避弹刀容器, from_=0.001, to=5.0, increment=0.05,
-                                       textvariable=识图间隔变量, font=("微软雅黑", 16),
-                                       relief="solid", width=5).grid(row=1, column=1, padx=5)"""
+                            ttk.Label(动态配置容器, text="切人间隔(秒)：", font=("微软雅黑", 12)).grid(row=3, column=0, padx=5, sticky="w")
+                            tk.Spinbox(动态配置容器, from_=0.001, to=5.0, increment=0.05,
+                                       textvariable=切人间隔变量, font=("微软雅黑", 12),
+                                       relief="solid", width=4).grid(row=3, column=1, padx=5)
+                        elif 当前选择 == "自动闪避弹刀":
+                            闪避弹刀自定义动作文件夹 = current_dir.parent / "外置配置文件夹" / "闪避弹刀自定义动作"
+
+                            def initialize_default_actions(action_folder: Path):
+                                """
+                                检查动作文件夹，若不存在或无任何.txt文件，则创建文件夹并写入预设动作文件。
+                                预设文件包括：闪避、跳跃、普攻、长按普攻、切1-4号位后普攻。
+                                """
+                                # 条件：文件夹不存在 或 文件夹内没有 .txt 文件
+                                if not action_folder.exists() or not list(action_folder.glob("*.txt")):
+                                    # 创建文件夹（如果父目录不存在也会一并创建）
+                                    action_folder.mkdir(parents=True, exist_ok=True)
+
+                                    # 定义预设文件名及其内容（硬编码）
+                                    preset_actions = {
+                                        "闪避": "长按按键 shift 0.05",
+                                        "跳跃": "长按按键 space 0.5",
+                                        "普攻": "后台角色普攻重击 0.06",
+                                        "长按普攻1秒": "后台角色普攻重击 1",
+                                        "切1号位角色后普攻": "长按按键 1 0.05\n后台角色普攻重击 0.06",
+                                        "切2号位角色后普攻": "长按按键 2 0.05\n后台角色普攻重击 0.06",
+                                        "切3号位角色后普攻": "长按按键 3 0.05\n后台角色普攻重击 0.06",
+                                        "切4号位角色后普攻": "长按按键 4 0.05\n后台角色普攻重击 0.06",
+                                    }
+
+                                    # 写入每个文件（UTF-8编码）
+                                    for name, content in preset_actions.items():
+                                        file_path = action_folder / f"{name}.txt"
+                                        # 仅在文件不存在时写入，避免覆盖用户可能意外同名的文件（但按逻辑此时一定无txt，所以安全）
+                                        if not file_path.exists():
+                                            file_path.write_text(content, encoding="utf-8")
+                            ttk.Label(动态配置容器, text="(提醒：通过音频波形判定，电脑和游戏不能静音，\n最好也不要播放除了异环游戏外的其他声音,\n更多动作请参照中文脚本编写教程设置,\n或者和作者说想要什么动作)",
+                                      font=("微软雅黑", 12), foreground="gray").grid(row=0, column=0,  sticky="w", padx=5)
+                            闪避容器 = ttk.Frame(动态配置容器)
+                            闪避容器.grid(row=1, column=0, sticky="w")
+                            ttk.Label(闪避容器, text="红光触发动作：", font=("微软雅黑", 12), foreground="red").grid(row=0, column=0, padx=5, sticky="w")
+                            闪避下拉框 = ttk.Combobox(闪避容器, textvariable=闪避动作自定义变量, font=("微软雅黑", 14), width=16)
+                            闪避下拉框.grid(row=0, column=1)
+                            弹刀容器 = ttk.Frame(动态配置容器)
+                            弹刀容器.grid(row=2, column=0, sticky="w")
+                            ttk.Label(弹刀容器, text="弹刀触发动作：", font=("微软雅黑", 12), foreground="orange").grid(row=0, column=0, padx=5, sticky="w")
+                            弹刀下拉框 = ttk.Combobox(弹刀容器, textvariable=弹刀动作自定义变量, font=("微软雅黑", 14), width=16)
+                            弹刀下拉框.grid(row=0, column=1)
+                            创建按钮2grid(动态配置容器, f"打开动作自定义文件夹", lambda: os.startfile(闪避弹刀自定义动作文件夹), 字体配置=("微软雅黑", int(14)), width=20, height=1, 位置=3,sy="w")
+                            def 刷新闪避弹刀动作列表():
+                                新列表=[]
+                                try:
+                                    if 闪避弹刀自定义动作文件夹.exists() and 闪避弹刀自定义动作文件夹.is_dir():
+                                        txt文件列表 = list(闪避弹刀自定义动作文件夹.glob("*.txt"))
+                                        for txt文件 in txt文件列表:
+                                            显示名 = f"{txt文件.stem}"
+                                            新列表.append(显示名)
+                                except Exception as e:
+                                    print(f"扫描txt任务文件夹失败：{e}")
+                                闪避下拉框["values"] = 新列表
+                                弹刀下拉框["values"] = 新列表
+                                if 闪避动作自定义变量.get() not in 新列表:
+                                    闪避动作自定义变量.set("请先选择动作")
+                                if 弹刀动作自定义变量.get() not in 新列表:
+                                    弹刀动作自定义变量.set("请先选择动作")
+
+                            执行器.提交任务(initialize_default_actions,闪避弹刀自定义动作文件夹, 异步=True)
+                            执行器.提交任务(刷新闪避弹刀动作列表, 异步=True)
                         elif 当前选择 == "鼠标快速打开esc界面":
                             ttk.Label(动态配置容器, text="(提醒：如果用键盘触发，键盘Alt按下后，再按下V/T，\n短暂等待esc界面明显打开后再弹起两个按键)",
                                       font=("微软雅黑", 14), foreground="gray").grid(row=0, column=2, columnspan=2, sticky="w", padx=5)
@@ -3701,7 +4140,7 @@ def 函数主程序():
                                 # 降级方案：按已有换行符估算（精度稍低）
                                 display_lines = 注释文本.count('\n') + 1
 
-                            max_lines = 10
+                            max_lines = 6
                             height = min(display_lines, max_lines)  # 动态高度，超出则滚动
                             text_box.config(height=height)  # 应用计算后的高度
 
@@ -3714,83 +4153,14 @@ def 函数主程序():
                     选择变量.trace_add("write", 任务切换回调)
 
                     tk.Label(文本容器, text=热键提示文本, font=("微软雅黑", 14)).grid(row=99, column=0, sticky=tk.W)
-                    tk.Label(文本容器, text=热键提示文本, font=("微软雅黑", 14)).grid(row=99, column=0, sticky=tk.W)
+
 
                     # 新增：任务状态标签 (row=98，放在热键提示上方)
                     状态标签 = tk.Label(文本容器, text="未运行", fg="red", font=("微软雅黑", 12, "bold"))
                     状态标签.grid(row=98, column=0, sticky=tk.W, pady=(0, 5))
 
                     任务切换回调()  # 初始化动态配置
-                    return 选择变量, 状态标签  # 返回两个对象
-                try:
-                    路径 = current_dir.parent / "外置配置文件夹" / "任务选择设置.json"
-                    if 路径.exists():
-                        with open(路径, 'r', encoding='utf-8') as f:
-                            设置数据 = json.load(f)
-                        for i, var in enumerate(任务选择变量列表, 1):
-                            key = f"任务{i}选择变量"
-                            if key in 设置数据:
-                                var.set(设置数据[key])
-                        if "变轨技能自定义按键" in 设置数据:
-                            变轨技能自定义按键.set(设置数据["变轨技能自定义按键"])
-                        if "极轨终结自定义按键" in 设置数据:
-                            极轨终结自定义按键.set(设置数据["极轨终结自定义按键"])
-                        if "弧盘技能自定义按键" in 设置数据:
-                            弧盘技能自定义按键.set(设置数据["弧盘技能自定义按键"])
-                        if "识图间隔变量" in 设置数据:
-                            识图间隔变量.set(设置数据["识图间隔变量"])
-                        print("其他任务设置加载成功")
-                    else:
-                        print("未找到其他任务设置，使用默认设置")
-                except Exception as e:
-                    print(f"加载其他任务设置时出错: {e}")
-                def 异环其他任务窗口创建():
-
-
-                    _, 状态3 = 创建单个任务界面(异环其他任务子容器, 1, 0, 任务编号=3, 默认值="自动按F",
-                                                热键提示文本="选择好任务3后，使用快捷键：鼠标上侧键 触发/停止任务")
-                    _, 状态4 = 创建单个任务界面(异环其他任务子容器, 1, 1, 任务编号=4, 默认值="鼠标快速打开esc界面",
-                                                热键提示文本="选择好任务4后，使用快捷键：鼠标下侧键 触发/停止任务")
-
-                    任务状态标签列表 = [0, 0, 状态3, 状态4]  # 方便后续按编号索引
-
-                    def 启用鼠标侧键():
-
-                            # 启动鼠标监听线程（只启动一次）
-                            from pynput import mouse
-                            任务3启动 = 创建任务启动函数(3, 任务3选择变量, 线程事件停止循环3, 线程事件任务循环3, 任务状态标签列表[2])
-                            任务4启动 = 创建任务启动函数(4, 任务4选择变量, 线程事件停止循环4, 线程事件任务循环4, 任务状态标签列表[3])
-                            def on_click(x, y, button, pressed):
-                                if pressed:
-                                    if button == mouse.Button.x1:
-                                        任务4启动()
-                                    elif button == mouse.Button.x2:
-                                        任务3启动()
-
-                            鼠标监听器 = mouse.Listener(on_click=on_click)
-                            鼠标监听器.start()
-                            启用按钮.config(state="disabled", text="鼠标侧键已启用")
-                            print("鼠标侧键热键已启用")
-
-                    容器 = ttk.Frame(异环其他任务子容器)
-                    容器.grid(row=2, column=0,pady=5)
-                    启用按钮 = tk.Button(容器, text="点击启用鼠标侧键热键", command=启用鼠标侧键, font=("楷体", 14, "bold", "italic"),fg="blue")
-                    启用按钮.grid(row=0, column=0,  pady=5)
-                    def 使用中文编写脚本教程():
-                        webbrowser.open("https://www.bilibili.com/video/BV1dbogBaE8x?vd_source=afc5352f066b8a32af43098464fb5654&p=3&spm_id_from=333.788.videopod.episodes")
-                        webbrowser.open("https://chat.deepseek.com/share/t0c6l71ctt2km79gyv")
-                    创建按钮2grid(容器, f"中文编写脚本网页教程", lambda :webbrowser.open("https://chat.deepseek.com/share/t0c6l71ctt2km79gyv"),
-                                  字体配置=("微软雅黑", int(14)), width=20, height=1, 位置=0, 位置2=2, )
-                    创建按钮2grid(容器, f"中文编写脚本视频教程",
-                                  lambda :webbrowser.open("https://www.bilibili.com/video/BV1dbogBaE8x?vd_source=afc5352f066b8a32af43098464fb5654&p=3&spm_id_from=333.788.videopod.episodes")
-                                  , 字体配置=("微软雅黑", int(14)), width=20, height=1, 位置=1, 位置2=2, )
-                    创建按钮2grid(容器, f"打开脚本存放文件夹", lambda :os.startfile(异环自定义txt任务文件夹), 字体配置=("微软雅黑", int(14)), width=20, height=1, 位置=2, 位置2=2, )
-
-
-
-
-                异环其他任务窗口创建()
-
+                    return 文本容器, 状态标签  # 返回两个对象
                 def 创建任务启动函数(任务编号, 选择变量, 事件停止, 事件循环, 状态标签):
                     """返回一个无参函数，用于热键触发"""
 
@@ -3800,13 +4170,21 @@ def 函数主程序():
                         color = "green" if running else "red"
                         # 假设 root 是全局主窗口变量，请根据实际变量名调整
                         window.after(0, lambda: 状态标签.config(text=text, fg=color))
+                        if running:
+                            执行器.提交任务(toast.show,f"{选择变量.get()}任务开始运行", duration_ms=2000, text_color="FF0000",bg_color="353535", 异步=True)
+
+
+                        else:
+                            执行器.提交任务(toast.show,f"{选择变量.get()}任务结束", duration_ms=2000, text_color="FF0000",bg_color="353535", 异步=True)
+
+
                     last_trigger_time = 0
                     def 任务启动():
                         nonlocal last_trigger_time
                         current_time = time.time()
                         # 防抖：300毫秒内的重复触发直接忽略
                         if current_time - last_trigger_time < 0.5:
-                            print(f"任务{任务编号}触发被防抖忽略，间隔{current_time - last_trigger_time:.3f}秒")
+                            print(f"任务{任务编号}触发短时间内连续发送命令，间隔{current_time - last_trigger_time:.3f}秒")
                             return
                         last_trigger_time = current_time
                         print(f"任务{任务编号}热键触发")
@@ -3820,11 +4198,14 @@ def 函数主程序():
                                 if not 事件停止.is_set():
                                     break
                             update_status(False)
+
                         else:
                             update_status(True)
+
                             事件循环.set()
                             事件停止.set()
                             函数保存设置()  # 保存全部任务设置
+                            管理设置('保存', current_dir.parent / "外置配置文件夹" / "任务选择设置.json", 完整映射)
                             adb路径 = 获取adb路径并检查(检查分辨率=False,事件循环=事件循环,事件停止=事件停止)
                             try:
                                 _, _, 异环句柄, 窗口矩形, _ = adb路径
@@ -3839,19 +4220,22 @@ def 函数主程序():
                                 threading.Thread(target=自动剧情, args=(current_dir, adb路径, 事件循环, 事件停止)).start()
                             elif 当前任务 == "自动按F":
 
-                                threading.Thread(target=自动按F, args=(current_dir, adb路径, 事件循环, 事件停止, 识图间隔变量.get())).start()
+                                threading.Thread(target=自动按F, args=(current_dir, adb路径, 事件循环, 事件停止, 识图间隔变量.get(),自动按F选择变量.get()
+                                                                       )).start()
                             elif 当前任务 == "自动战斗":
-                                threading.Thread(target=速切宏战斗线程, args=(事件循环, 事件停止, adb路径)).start()
+                                threading.Thread(target=速切宏战斗线程, args=(事件循环, 事件停止, adb路径,切人间隔变量.get())).start()
                                 threading.Thread(target=速切宏战斗线程2, args=(事件循环, 事件停止, adb路径, 变轨技能自定义按键.get(), 极轨终结自定义按键.get(), 弧盘技能自定义按键.get())).start()
                             elif 当前任务 == "自动闪避弹刀":
                                 游戏静音=False
-                                from 音频闪避反击 import 根据音频闪避反击任务
+
                                 selected = 异环工具优先级变量.get()
                                 if selected=="高于正常" or selected=="实时（最高，慎用）":
                                     pass
                                 else:
                                     异环工具优先级变量.set("高于正常")
-                                threading.Thread(target=根据音频闪避反击任务, args=(current_dir,异环句柄,事件循环, 事件停止)).start()
+                                from 音频闪避反击 import 根据音频闪避反击任务
+                                threading.Thread(target=根据音频闪避反击任务, args=(current_dir,异环句柄, 窗口矩形,事件循环, 事件停止)).start()
+                                #事件停止.clear()#先占用
                             elif 当前任务 == "鼠标快速打开esc界面":
                                 threading.Thread(target=鼠标快速打开esc界面, args=(adb路径, 事件循环, 事件停止)).start()
                             elif "[txt]" in 当前任务:
@@ -3870,12 +4254,18 @@ def 函数主程序():
 
                                 def 执行脚本():
                                     执行脚本内容(异环句柄, 窗口矩形, 事件循环, 脚本内容)
+                                    if "切人重置闪避冷却赶路" in 当前任务:
+                                        弹起所有按键(异环句柄)
+
                                     事件停止.clear()
+
                                     print(f"任务{当前任务}结束")
 
                                 threading.Thread(target=执行脚本).start()
                             threading.Thread(target=线程持续激活, args=(异环句柄, 事件循环, 游戏静音)).start()
-                            函数保存其他任务设置()
+
+
+
                             def 标签变化():
                                 while True:
                                     time.sleep(0.5)
@@ -3888,15 +4278,86 @@ def 函数主程序():
 
 
                     return 任务启动
+                def 异环其他任务窗口创建():
+
+
+                    任务3容器, 状态3 = 创建单个任务界面(异环其他任务子容器, 1, 0, 任务编号=3, 默认值="自动按F",
+                                                热键提示文本="选择好任务3后，使用快捷键：鼠标上侧键 触发/停止任务")
+                    任务4容器, 状态4 = 创建单个任务界面(异环其他任务子容器, 1, 1, 任务编号=4, 默认值="鼠标快速打开esc界面",
+                                                热键提示文本="选择好任务4后，使用快捷键：鼠标下侧键 触发/停止任务")
+
+                    任务状态标签列表 = [0, 0, 状态3, 状态4]  # 方便后续按编号索引
+                    任务3启动或停止 = 创建任务启动函数(3, 任务3选择变量, 线程事件停止循环3, 线程事件任务循环3, 任务状态标签列表[2])
+                    创建按钮2grid(任务3容器, f"启动/停止任务3", 任务3启动或停止, 字体配置=("微软雅黑", int(14)), width=16, height=1, 位置=100, 位置2=0, )
+                    任务4启动或停止  = 创建任务启动函数(4, 任务4选择变量, 线程事件停止循环4, 线程事件任务循环4, 任务状态标签列表[3])
+                    创建按钮2grid(任务4容器, f"启动/停止任务4", 任务4启动或停止, 字体配置=("微软雅黑", int(14)), width=16, height=1, 位置=100, 位置2=0, )
+                    def 启用鼠标侧键():
+                        # 启动鼠标监听线程（只启动一次）
+                        from pynput import mouse
+
+                        def on_click(x, y, button, pressed):
+                            # 只处理侧键 X1 和 X2
+                            if button not in (mouse.Button.x1, mouse.Button.x2):
+                                return
+
+                            触发方式 = "点击启动/停止"
+                            任务名 = "任务3" if button == mouse.Button.x2 else "任务4"
+                            #print(f"收到事件: button={button}, pressed={pressed},触发方式={触发方式}")
+
+                            def 启动侧键任务():
+                                if 任务名 == "任务3":
+                                    任务3启动或停止()
+                                else:
+                                    任务4启动或停止()
+                            if 触发方式 == "点击启动/停止":
+                                if pressed:  # 只在按下时触发一次
+                                    启动侧键任务()
+
+                            elif 触发方式 == "按下启动/松开停止":
+
+                                if pressed:
+                                    启动侧键任务()
+                                else:
+                                    启动侧键任务()
+
+                        鼠标监听器 = mouse.Listener(on_click=on_click)
+                        鼠标监听器.start()
+                        启用按钮.config(state="disabled", text="鼠标侧键已启用")
+                        print("鼠标侧键热键已启用")
+
+
+                    容器 = ttk.Frame(异环其他任务子容器)
+                    容器.grid(row=2, column=0,pady=5)
+                    启用按钮 = tk.Button(容器, text="启用鼠标侧键热键", command=启用鼠标侧键, font=("楷体", 14, "italic"),fg="blue")
+                    启用按钮.grid(row=0, column=1,  pady=5)
+                    #tk.Label(容器, text="侧键启动方式:", font=("微软雅黑", 16)).grid(row=1, column=0, sticky=tk.E)
+                    #创建单选框grid(current_dir, 容器, "点击启动/停止", 鼠标侧键触发方式变量, "点击启动/停止", font=("微软雅黑", 16), 位置=1, 位置2=1,  边距y=0, **单选框基础样式)
+                    #创建单选框grid(current_dir, 容器, "按下启动/松开停止", 鼠标侧键触发方式变量, "按下启动/松开停止", font=("微软雅黑", 16), 位置=1, 位置2=2, 边距x=0, 边距y=0, **单选框基础样式)
+
+                    创建按钮2grid(容器, f"编写脚本网页教程", lambda :opener.open("https://chat.deepseek.com/share/t0c6l71ctt2km79gyv"),
+                                  字体配置=("微软雅黑", int(14)), width=16, height=1, 位置=5, 位置2=0, sy="w")
+                    创建按钮2grid(容器, f"编写脚本视频教程",
+                                  lambda :opener.open("https://www.bilibili.com/video/BV1dbogBaE8x?vd_source=afc5352f066b8a32af43098464fb5654&p=3&spm_id_from=333.788.videopod.episodes")
+                                  , 字体配置=("微软雅黑", int(14)), width=16, height=1, 位置=5, 位置2=1, sy="w" )
+                    创建按钮2grid(容器, f"脚本存放文件夹", lambda :os.startfile(异环自定义txt任务文件夹), 字体配置=("微软雅黑", int(14)), width=13, height=1, 位置=5, 位置2=2,  sy="w")
+
+
+
+
+                异环其他任务窗口创建()
+
+
 
                 def 注册其他任务宏热键():
-                    _, 状态1 = 创建单个任务界面(异环其他任务子容器, 0, 0, 任务编号=1, 默认值="自动战斗",
+                    任务1容器, 状态1 = 创建单个任务界面(异环其他任务子容器, 0, 0, 任务编号=1, 默认值="自动战斗",
                                                 热键提示文本="选择好任务1后，使用快捷键：Alt+V  触发/停止任务")
-                    _, 状态2 = 创建单个任务界面(异环其他任务子容器, 0, 1, 任务编号=2, 默认值="自动跳过剧情",
+                    任务2容器, 状态2 = 创建单个任务界面(异环其他任务子容器, 0, 1, 任务编号=2, 默认值="自动跳过剧情",
                                                 热键提示文本="选择好任务2后，使用快捷键：Alt+T 触发/停止任务")
                     任务状态标签列表 = [状态1, 状态2]
                     任务1启动 = 创建任务启动函数(1, 任务1选择变量, 线程事件停止循环1, 线程事件任务循环1, 任务状态标签列表[0])
+                    创建按钮2grid(任务1容器, f"启动/停止任务1", 任务1启动, 字体配置=("微软雅黑", int(14)), width=16, height=1, 位置=100, 位置2=0, )
                     任务2启动 = 创建任务启动函数(2, 任务2选择变量, 线程事件停止循环2, 线程事件任务循环2,任务状态标签列表[1])
+                    创建按钮2grid(任务2容器, f"启动/停止任务2", 任务2启动, 字体配置=("微软雅黑", int(14)), width=16, height=1, 位置=100, 位置2=0, )
 
 
 
@@ -3920,11 +4381,16 @@ def 函数主程序():
 
 
     def 检查更新并弹窗():
+        try:
 
-        update_path = os.path.join(current_dir, 'update.json')
-        with open(update_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-        上次检查时间 = data["time"]
+            update_path = os.path.join(current_dir, 'update.json')
+            with open(update_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                上次检查时间 = data["time"]
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError) as e:
+            # 发生任何异常时，端口号已经是 0
+            print(f"读取配置文件失败，将使用默认端口号 0。错误信息: {e}")
+            上次检查时间="2022-05-20"
         # 将字符串转换为 datetime.date 对象
         上次检查时间 = datetime.date.fromisoformat(上次检查时间)
         logger.debug(f"上次检查更新时间：{上次检查时间}")
@@ -3936,14 +4402,21 @@ def 函数主程序():
                 json.dump(update_settings, file, ensure_ascii=False, indent=4)
             logger.debug("开始检查更新和获取兑换码")
 
-            网页网址 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
+            网站列表 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
             if 异环脚本运行:
-                网页网址 = "https://github.com/nokiruy/Noki-NTE-Auto/releases"
-            elif 幻塔脚本运行:
-                网页网址 = "https://github.com/nokiruy/Noki-Hotta-Auto/releases"
+                网站列表 = [
+                    "https://gitee.com/nokiruy/noki-nte-auto/releases",
+                    "https://github.com/nokiruy/Noki-NTE-Auto/releases",
 
-            文本 = 检查更新(f"v{current_version}", 网页网址)
+                ]
+            elif 幻塔脚本运行:
+                网站列表 = "https://github.com/nokiruy/Noki-Hotta-Auto/releases"
+
+            文本 = 检查更新(f"v{current_version}", 网站列表)
             print(文本)
+            if "当前已是最新版本" in 文本:
+                time.sleep(5)
+                执行器.提交任务(toast.show, f"检查更新完毕，当前已是最新版本", duration_ms=4000, text_color="FF0000", bg_color="353535", 异步=True)
             if 文本 != False and  "当前已是最新版本" not in 文本:
                 版本更新提示窗口(文本, 标题="版本更新提示")
         else:
@@ -3965,8 +4438,27 @@ def 函数主程序():
                      args=()).start()
     threading.Thread(target=刷新端口列表2,
                      args=()).start()
+    threading.Thread(target=刷新端口列表3,
+                     args=()).start()
     window.update_idletasks()
-    window.deiconify()  # 显示窗口
+    window.deiconify()
+
+    # 显示窗口
+
+    def 注册函数停止任务():
+        keyboard.add_hotkey('alt+f12', lambda:函数停止全部任务())
+        keyboard.wait()
+
+    if getattr(sys, 'frozen', False):
+        pass
+    else:
+        def 注册截图到剪切板任务():
+            keyboard.add_hotkey('alt+c', lambda: 截图到剪切板(弹窗=False))
+            keyboard.wait()
+        threading.Thread(target=注册截图到剪切板任务,
+                         args=()).start()
+    threading.Thread(target=注册函数停止任务,
+                     args=()).start()
 
     window.mainloop()
 

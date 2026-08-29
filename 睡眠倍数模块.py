@@ -2,9 +2,13 @@ import time
 import logging
 logger = logging.getLogger("database")
 
+
+
+
 def 可变速等待(秒: float = 1.0, 检查间隔: float = 0.1) -> bool:
     """
-    可变速度的等待函数，支持线程中断
+    可变速度的等待函数，支持线程中断。
+    若全局变量 线程事件任务循环 或 脚本运行速度 未定义，则退化为普通 time.sleep。
 
     Args:
         秒: 等待的总秒数
@@ -13,11 +17,22 @@ def 可变速等待(秒: float = 1.0, 检查间隔: float = 0.1) -> bool:
     Returns:
         bool: True表示正常等待完成，False表示被中断
     """
-    global 线程事件任务循环,脚本运行速度
+    global 线程事件任务循环, 脚本运行速度
+    # ---------- 安全获取全局变量，缺失时直接降级 ----------
+    try:
+        # 先尝试引用，若未定义会抛出 NameError
+        _ = 线程事件任务循环
+        _ = 脚本运行速度
+    except NameError:
+        # 全局变量不存在，执行普通等待（不检查中断）
+        logger.debug("可变速等待缺少全局变量，使用普通 time.sleep 代替")
+        time.sleep(秒)
+        return True
 
+    # ---------- 原有逻辑，此时变量一定存在 ----------
     if not 线程事件任务循环.is_set():
-
         return False
+
     if 秒 <= 0:
         return True
 
@@ -33,7 +48,7 @@ def 可变速等待(秒: float = 1.0, 检查间隔: float = 0.1) -> bool:
     # 计算需要检查的次数
     检查次数 = max(1, int(实际等待时间 / 检查间隔))
     最后等待时间 = 实际等待时间 - (检查次数 - 1) * 检查间隔
-    #logger.debug(f"{脚本运行速度}and {线程事件任务循环.is_set()}and{实际等待时间}")
+
     try:
         for i in range(检查次数):
             if not 线程事件任务循环.is_set():

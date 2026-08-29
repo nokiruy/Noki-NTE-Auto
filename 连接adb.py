@@ -29,7 +29,6 @@ from 后台点击再次封装 import pc端单击键盘, pc端单击键盘无线�
 
 
 
-
 def get_seconds_to_target_time(parameter):
     """
     计算当前时间到指定时间点的秒数。
@@ -63,16 +62,46 @@ def get_seconds_to_target_time(parameter):
     return int(time_difference.total_seconds())
 
 
+def _wildcard_match(text: str, pattern: str) -> bool:
+    """
+    通配符匹配：支持 * (任意长度字符) 和 ? (单个字符)
+    纯 Python 实现，不依赖 fnmatch 库
+    """
+    # 使用动态规划避免递归深度问题，但也保留简单递归版本
+    # 这里实现一个迭代的动态规划版本，更健壮
+    t_len, p_len = len(text), len(pattern)
+    # dp[i][j] 表示 text[:i] 与 pattern[:j] 是否匹配
+    dp = [[False] * (p_len + 1) for _ in range(t_len + 1)]
+    dp[0][0] = True
+
+    # 处理 pattern 开头为连续 * 的情况
+    for j in range(1, p_len + 1):
+        if pattern[j - 1] == '*':
+            dp[0][j] = dp[0][j - 1]
+        else:
+            break
+
+    for i in range(1, t_len + 1):
+        for j in range(1, p_len + 1):
+            if pattern[j - 1] == '*':
+                # * 匹配零个字符：dp[i][j-1]；匹配一个字符并继续：dp[i-1][j]
+                dp[i][j] = dp[i][j - 1] or dp[i - 1][j]
+            elif pattern[j - 1] == '?' or pattern[j - 1] == text[i - 1]:
+                dp[i][j] = dp[i - 1][j - 1]
+    return dp[t_len][p_len]
+
+
 def 精确查找所有窗口句柄(目标窗口类名=None, 目标窗口标题=None):
     """
     查找所有匹配指定类名和/或标题的窗口句柄
+    支持通配符：类名和标题中可使用 * 和 ? 进行模糊匹配
 
     参数:
-        目标窗口类名: 窗口类名，可以为 None（匹配所有类名）
-        目标窗口标题: 窗口标题，可以为 None（匹配所有标题）
+        目标窗口类名: 窗口类名，可为 None（匹配所有），支持 * ? 通配符
+        目标窗口标题: 窗口标题，可为 None（匹配所有），支持 * ? 通配符
 
     返回:
-        匹配的窗口句柄列表
+        匹配的窗口句柄列表，元素为 (句柄, 矩形)
     """
     # 设置DPI感知
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -80,26 +109,34 @@ def 精确查找所有窗口句柄(目标窗口类名=None, 目标窗口标题=N
     匹配窗口列表 = []
 
     def 枚举窗口回调(句柄, 参数):
-        # 获取窗口类名
         窗口类名 = win32gui.GetClassName(句柄)
-
-        # 获取窗口标题
         窗口标题 = win32gui.GetWindowText(句柄)
 
-        # 检查是否匹配
-        类名匹配 = (目标窗口类名 is None or 窗口类名 == 目标窗口类名)
-        标题匹配 = (目标窗口标题 is None or 窗口标题 == 目标窗口标题)
+        # 类名匹配
+        if 目标窗口类名 is None:
+            类名匹配 = True
+        else:
+            if '*' in 目标窗口类名 or '?' in 目标窗口类名:
+                类名匹配 = _wildcard_match(窗口类名, 目标窗口类名)
+            else:
+                类名匹配 = (窗口类名 == 目标窗口类名)
+
+        # 标题匹配
+        if 目标窗口标题 is None:
+            标题匹配 = True
+        else:
+            if '*' in 目标窗口标题 or '?' in 目标窗口标题:
+                标题匹配 = _wildcard_match(窗口标题, 目标窗口标题)
+            else:
+                标题匹配 = (窗口标题 == 目标窗口标题)
 
         if 类名匹配 and 标题匹配:
             矩形 = _update_window_rect(句柄)
-            匹配窗口列表.append((句柄,矩形))
+            匹配窗口列表.append((句柄, 矩形))
 
-        # 返回 True 继续枚举
         return True
 
-    # 枚举所有顶层窗口
     win32gui.EnumWindows(枚举窗口回调, None)
-
     return 匹配窗口列表
 def 断开所有adb设备连接(adb路径):
     try:
@@ -271,10 +308,10 @@ def 中途连接模拟器():
         if target_path.exists() and target_path.is_dir():  # 判断文件是否存在
             if 游戏 == "异环":
                 return
-    ds_path = current_dir / 'game.json'
+    ds_path = current_dir / 'ds.json'
     if not ds_path.exists():
         current_dir = current_dir.parent.parent.parent  # 三级回溯
-        ds_path = current_dir / 'game.json'
+        ds_path = current_dir / 'ds.json'
     app_path = current_dir / "platform-tools" / "adb.exe"
     with open(os.path.join(current_dir, 'Tool_Settings.json'), 'r', encoding='utf-8') as file:
         Tool_Settings = json.load(file)

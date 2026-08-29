@@ -5,8 +5,6 @@ import win32con
 import ctypes
 from ctypes import wintypes
 import win32process
-
-import subprocess
 from pathlib import Path
 
 import os
@@ -21,40 +19,97 @@ WM_ACTIVATE = win32con.WM_ACTIVATE
 WA_ACTIVE = 1
 
 import win32process
-from pycaw.pycaw import AudioUtilities
+
+import subprocess
+from typing import Optional
+import win32gui
+
+def has_parent_window(hwnd: int):
+    """
+    判断窗口是否有父窗口，如果有则打印父窗口信息。
+
+    :param hwnd: 目标窗口句柄
+    :return: 有父窗口返回 True，否则返回 False
+    """
+    parent = win32gui.GetParent(hwnd)
+    if parent == 0:
+        return False,0
+
+    # 获取父窗口类名和标题
+    class_name = win32gui.GetClassName(parent)
+    title = win32gui.GetWindowText(parent)
+    print(f"父窗口句柄: {parent}")
+    print(f"父窗口类名: {class_name}")
+    print(f"父窗口标题: {title}")
+    return True,parent
+def has_child_windows(hwnd: int) -> bool:
+    """
+    判断指定窗口句柄是否拥有子窗口。
+
+    :param hwnd: 目标窗口的句柄（HWND）
+    :return: 如果有至少一个子窗口返回 True，否则返回 False
+    """
+    found = False
+
+    def enum_callback(child_hwnd, lparam):
+        nonlocal found
+        found = True
+        # 返回 False 以停止继续枚举
+        return False
+
+    # 枚举所有子窗口，回调函数会在每个子窗口上被调用
+    win32gui.EnumChildWindows(hwnd, enum_callback, None)
+    return found
+def find_child_window(parent_hwnd: int, class_name: str = None, window_title: str = None) -> int:
+    """
+    在指定父窗口下查找符合类名和/或标题的第一个子窗口。
+
+    :param parent_hwnd: 父窗口句柄
+    :param class_name: 窗口类名（可为 None，表示不限制）
+    :param window_title: 窗口标题（可为 None，表示不限制）
+    :return: 找到的子窗口句柄，如果未找到则返回 0
+    """
+    return win32gui.FindWindowEx(parent_hwnd, 0, class_name, window_title)
+class MuteDLL:
+    """调用 MuteLib.dll 静音指定窗口的进程音频"""
+    def __init__(self, dll_path: Optional[str] = None):
+        if getattr(sys, 'frozen', False):
+            base_dir = Path(sys.executable).parent
+        else:
+            base_dir = Path(__file__).parent
+
+        dll_path =str( base_dir / "UI" / "端口相关" / "mutedll.dll")
+
+        self._dll = ctypes.CDLL(dll_path)
+        self._dll.MuteProcessByHwnd.argtypes = [ctypes.c_uint64, ctypes.c_bool]
+        self._dll.MuteProcessByHwnd.restype = ctypes.c_bool
+
+    def mute(self, hwnd: int, mute: bool) -> bool:
+        """
+        设置窗口所属进程的静音状态
+        :param hwnd: 窗口句柄（Python int）
+        :param mute: True=静音, False=解除
+        :return: 成功返回 True，否则 False
+        """
+        try:
+            return self._dll.MuteProcessByHwnd(hwnd, mute)
+        except Exception as e:
+            # DLL 内已保证不崩溃，此处仅为极端兜底
+            print(f"DLL调用异常: {e}")
+            return False
+
+# 全局单例（可根据需要调整）
+_mute_dll = MuteDLL()
 
 def 窗口静音(hwnd: int, mute: bool) -> bool:
     """
-       根据窗口句柄设置静音或解除静音（自动处理 COM 初始化）
+    通过 DLL 设置窗口所属进程的静音状态
+    接口完全兼容原 subprocess 版本
+    """
 
-       :param hwnd: 窗口句柄（整数）
-       :param mute: True = 静音, False = 解除静音
-       :return: 操作成功返回 True，未找到对应会话则返回 False
-       """
+    print(f"窗口{hwnd}，静音{mute}")
+    return _mute_dll.mute(hwnd, mute)
 
-    try:
-        # 初始化当前线程的 COM 库（如果尚未初始化）
-        ctypes.windll.ole32.CoInitialize(None)
-
-        # 获取窗口所属进程的 PID
-        _, pid = win32process.GetWindowThreadProcessId(hwnd)
-        if pid == 0:
-            return False
-
-        # 获取所有音频会话
-        sessions = AudioUtilities.GetAllSessions()
-
-        for session in sessions:
-            if session.Process and session.Process.pid == pid:
-                volume = session.SimpleAudioVolume
-                volume.SetMute(mute, None)  # 第二个参数为事件上下文 GUID
-                return True
-
-        return False  # 未找到匹配的音频会话
-    except Exception as e:
-        print(f"操作失败: {e}")
-        return False
-    # 注意：不在此处调用 CoUninitialize，避免影响 pycaw 后续可能的 COM 操作
 def 线程持续激活(句柄,线程事件,游戏静音=True):
     if getattr(sys, 'frozen', False):
         current_dir = os.path.dirname(os.path.abspath(sys.executable))
@@ -78,10 +133,29 @@ def 线程持续激活(句柄,线程事件,游戏静音=True):
 
 
 def 窗口假激活(句柄):
+    if has_child_windows(句柄):
+        hwnd = find_child_window(句柄, "Qt51517QWindowIcon", "NTECloudGame")
+        if hwnd:
+            句柄 = find_child_window(hwnd, "WLCloudGameClient", "WLCloudGame")
     if 句柄:
         # 发送激活消息
         win32gui.SendMessage(句柄, WM_ACTIVATE, WA_ACTIVE, 0)
+def 检查指定窗口句柄对应的应用是否仍然存在(hwnd):
+    """
+    检查指定窗口句柄对应的窗口/应用是否仍然存在。
 
+    参数:
+        hwnd (int): 窗口句柄（HWND）
+
+    返回:
+        bool: 窗口存在返回 True，否则返回 False；发生异常时返回 False
+    """
+    try:
+        # 调用 user32.dll 的 IsWindow 函数
+        return bool(ctypes.windll.user32.IsWindow(hwnd))
+    except:
+        # 任何异常（如参数类型错误、DLL 无法加载等）均视为窗口不存在
+        return False
 def 获取应用路径(hwnd):
     try:
         # 获取窗口所属的进程 ID

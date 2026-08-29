@@ -16,6 +16,37 @@ GPU_BLACKLIST = [
 ]
 
 
+def 转换坐标(原始坐标, 游戏窗口矩形, 设计分辨率=(1920, 1080),配置列表=None):
+    """
+    将基于设计分辨率的坐标，转换为游戏窗口实际分辨率下的坐标。
+
+    参数:
+        原始坐标: (x, y) 元组，基于设计分辨率定义
+        游戏窗口矩形: (左, 上, 右, 下) 元组，窗口客户区坐标
+        设计分辨率: (宽, 高) 元组，原始坐标所属的参考分辨率
+
+    返回:
+        (new_x, new_y) 元组，游戏窗口实际分辨率下的坐标
+    """
+    if 配置列表:
+        模板路径, 模板图片, 使用GPU加速, 游戏窗口矩形, 设计分辨率 = 配置列表
+    原始_x, 原始_y = 原始坐标
+    设计宽, 设计高 = 设计分辨率
+    游戏宽 = 游戏窗口矩形[2] - 游戏窗口矩形[0]
+    游戏高 = 游戏窗口矩形[3] - 游戏窗口矩形[1]
+
+    if 设计宽 <= 0 or 设计高 <= 0:
+        raise ValueError("设计分辨率无效")
+    if 游戏宽 <= 0 or 游戏高 <= 0:
+        raise ValueError("游戏窗口矩形无效")
+
+    # 计算缩放比例（允许非等比例，一般等比例缩放也可）
+    scale_x = 游戏宽 / 设计宽
+    scale_y = 游戏高 / 设计高
+
+    new_x = int(round(原始_x * scale_x))
+    new_y = int(round(原始_y * scale_y))
+    return new_x, new_y
 
 def 根据模版路径返回配置元组(模板路径, 检测是否符合GPU加速, 游戏窗口矩形=None):
     """
@@ -24,6 +55,24 @@ def 根据模版路径返回配置元组(模板路径, 检测是否符合GPU加�
     """
     # ------------------ 解析原始模板路径 ------------------
     原始路径 = Path(模板路径)
+
+    # ---------- 新增：文件不存在时回退到默认 1280x720 ----------
+    if not 原始路径.is_file():
+        stem = 原始路径.stem
+        suffix = 原始路径.suffix
+        # 提取基础名称（去掉可能已有的分辨率后缀）
+        res_match = re.search(r'_(\d+)x(\d+)$', stem)
+        if res_match:
+            base_stem = stem[:-len(res_match.group(0))]
+        else:
+            base_stem = stem
+        默认分辨率路径 = 原始路径.parent / f"{base_stem}_1280x720{suffix}"
+        if 默认分辨率路径.is_file():
+            print(f"警告：模板文件 {模板路径} 不存在，使用默认分辨率图片 {默认分辨率路径}")
+            模板路径 = str(默认分辨率路径)
+            原始路径 = Path(模板路径)  # 更新 Path 对象
+        # 否则保持原路径，后续加载失败时仍会弹出错误框
+
     目录 = 原始路径.parent
     stem = 原始路径.stem       # 例：对话 或 对话_1920x1080
     suffix = 原始路径.suffix   # 例：.png
@@ -62,8 +111,6 @@ def 根据模版路径返回配置元组(模板路径, 检测是否符合GPU加�
             for f in 候选文件:
                 # 提取文件名中的分辨率
                 f_stem = f.stem
-                # 需要安全地提取末尾的 _WIDTHxHEIGHT
-                # 先确定 base_stem：如果原始 stem 自带分辨率就用 基础stem，否则用 stem
                 base = 基础stem if 自带分辨率匹配 else stem
                 if not f_stem.startswith(base):
                     continue
@@ -91,14 +138,13 @@ def 根据模版路径返回配置元组(模板路径, 检测是否符合GPU加�
                 最佳宽, 最佳高, 选中路径 = 候选列表[0]
                 最终模板路径 = 选中路径
                 图片要求分辨率 = [最佳宽, 最佳高]
-                限定区域要求分辨率 = [最佳宽, 最佳高]  # 如果后续需要缩放限定区域
+                if 自带分辨率匹配:
+                    限定区域要求分辨率 = [自带宽, 自带高]  # 例如 [1920, 1080]
+                else:
+                    限定区域要求分辨率 = None
                 print(f"选中最佳匹配: {最终模板路径} (分辨率 {最佳宽}x{最佳高})")
-
-                # 如果选中的是自身且自身与游戏分辨率不匹配，依旧会进行后续缩放
-                # 若选中的恰好是精确匹配，则后续缩放步骤会发现分辨率相等而跳过缩放
             else:
                 print("未找到其他分辨率图片，将继续使用传入模板并缩放")
-                # 此时若自带分辨率，就用自带的作为要求分辨率
                 if 自带分辨率匹配:
                     图片要求分辨率 = [自带宽, 自带高]
                     限定区域要求分辨率 = [自带宽, 自带高]
@@ -139,7 +185,7 @@ def 根据模版路径返回配置元组(模板路径, 检测是否符合GPU加�
                       f"(游戏分辨率 {游戏分辨率} vs 模板分辨率 {图片要求分辨率})")
 
     # ------------------ GPU 加速可行性检测 ------------------
-    if 检测是否符合GPU加速 and 模板图片 is not None and cv2.ocl.haveOpenCL():
+    """if 检测是否符合GPU加速 and 模板图片 is not None and cv2.ocl.haveOpenCL():
         if Path(最终模板路径).name in GPU_BLACKLIST:
             print(f"{最终模板路径} 位于 GPU 黑名单，强制使用 CPU")
             是否开启GPU加速 = False
@@ -152,14 +198,15 @@ def 根据模版路径返回配置元组(模板路径, 检测是否符合GPU加�
                 print(f"{最终模板路径}不支持GPU加速识图，图片大小：{模板图片.shape[:2]}")
                 是否开启GPU加速 = False
     else:
-        是否开启GPU加速 = False
-
+        是否开启GPU加速 = False"""
+    是否开启GPU加速 = False
     return 最终模板路径, 模板图片, 是否开启GPU加速, 游戏窗口矩形, 限定区域要求分辨率
 def _gpu_match_template(image, templ, method, use_gpu,模版路径):
     """
     智能选择 GPU/CPU 进行模板匹配。
     当 GPU 返回可疑结果（如 1.00）时，自动回退 CPU 验证。
     """
+    return cv2.matchTemplate(image, templ, method)
     if use_gpu and cv2.ocl.haveOpenCL():
         # 确保内存连续
         if not image.flags['C_CONTIGUOUS']:
@@ -244,7 +291,7 @@ def 函数_在指定区域数组匹配(背景图片, 限定区域, 最低相似�
             高度 = min(高度, 背景高 - y坐标)
             # ---------------------------------
 
-            print(f"限定区域已缩放: ({限定区域[0]},{限定区域[1]},{限定区域[2]},{限定区域[3]}) → ({x坐标},{y坐标},{宽度},{高度})")
+            logger.info(f"限定区域已缩放: ({限定区域[0]},{限定区域[1]},{限定区域[2]},{限定区域[3]}) → ({x坐标},{y坐标},{宽度},{高度})")
     # ---------- 缩放结束 ----------
     限定区域图片 = 背景图片[y坐标:y坐标 + 高度, x坐标:x坐标 + 宽度]
 
@@ -280,7 +327,119 @@ def 函数_在指定区域数组匹配(背景图片, 限定区域, 最低相似�
 
     return 是否匹配, max_val, 最大匹配x坐标, 最大匹配y坐标
 
+def 函数_在指定区域数组配置元组列表匹配返回最像结果(背景图片, 限定区域, 最低相似度, 配置元组列表):
+    """
+    在指定区域中用多个模板进行匹配，返回相似度最高的那个结果。
 
+    参数:
+        背景图片: numpy BGR 数组
+        限定区域: (x, y, w, h) 在背景图片中的感兴趣区域
+        最低相似度: float，相似度阈值
+        配置元组列表: list，每个元素为 配置元组 = (模板路径, 模板图片, 使用GPU加速, 游戏窗口矩形, 限定区域要求分辨率)
+
+    返回:
+        (是否匹配, 最大相似度, x坐标, y坐标, 最佳模板路径)
+    """
+    开始时间 = time.time()
+
+    # ---------- 背景图片格式预处理 ----------
+    if 背景图片 is None:
+        logger.error("[错误] 截图数据为空，跳过本次匹配")
+        return False, 0.0, 0, 0, None
+
+    try:
+        if 背景图片.ndim == 3 and 背景图片.shape[2] == 3:
+            pass  # 正常 BGR
+        elif 背景图片.ndim == 3 and 背景图片.shape[2] == 4:
+            背景图片 = cv2.cvtColor(背景图片, cv2.COLOR_BGRA2BGR)
+        elif 背景图片.ndim == 2:
+            背景图片 = cv2.cvtColor(背景图片, cv2.COLOR_GRAY2BGR)
+        else:
+            logger.error(f"不支持的背景图片格式: ndim={背景图片.ndim}, shape={背景图片.shape}")
+            return False, 0.0, 0, 0, None
+    except Exception as e:
+        logger.error(f"背景图片预处理异常: {e}")
+        return False, 0.0, 0, 0, None
+
+    # ---------- 分辨率自适应：缩放限定区域 ----------
+    x坐标, y坐标, 宽度, 高度 = 限定区域
+
+    # 取列表第一个配置元组中的窗口矩形和需求分辨率作为缩放基准（假设所有模板共享同一套游戏窗口和分辨率设定）
+    if not 配置元组列表:
+        return False, 0.0, 0, 0, None
+    示例配置 = 配置元组列表[0]
+    _模板路径, _模板图片, _使用GPU加速, 游戏窗口矩形, 限定区域要求分辨率 = 示例配置
+
+    if 限定区域要求分辨率 is not None:
+        限定宽, 限定高 = 限定区域要求分辨率
+        游戏宽 = 游戏窗口矩形[2] - 游戏窗口矩形[0]
+        游戏高 = 游戏窗口矩形[3] - 游戏窗口矩形[1]
+        if 限定宽 != 游戏宽 or 限定高 != 游戏高:
+            scale_x = 游戏宽 / 限定宽
+            scale_y = 游戏高 / 限定高
+            x坐标 = int(round(x坐标 * scale_x))
+            y坐标 = int(round(y坐标 * scale_y))
+            宽度 = int(round(宽度 * scale_x))
+            高度 = int(round(高度 * scale_y))
+
+            # 边界保护
+            背景高, 背景宽 = 背景图片.shape[:2]
+            x坐标 = max(0, min(x坐标, 背景宽 - 1))
+            y坐标 = max(0, min(y坐标, 背景高 - 1))
+            宽度 = min(宽度, 背景宽 - x坐标)
+            高度 = min(高度, 背景高 - y坐标)
+
+            logger.info(f"限定区域已缩放: ({限定区域[0]},{限定区域[1]},{限定区域[2]},{限定区域[3]}) → ({x坐标},{y坐标},{宽度},{高度})")
+
+    限定区域图片 = 背景图片[y坐标:y坐标 + 高度, x坐标:x坐标 + 宽度]
+
+    # ---------- 遍历所有模板，记录最佳匹配 ----------
+    best_max_val = -1.0
+    best_x = 0
+    best_y = 0
+    best_template_path = None
+
+    for 配置 in 配置元组列表:
+        模板路径, 模板图片, 使用GPU加速, _, _ = 配置   # 游戏窗口矩形与分辨率缩放已固定，此处不再使用
+
+        # 尺寸检查
+        if 模板图片.shape[0] > 限定区域图片.shape[0] or 模板图片.shape[1] > 限定区域图片.shape[1]:
+            logger.warning(
+                f"模板尺寸 {模板图片.shape} 大于限定区域尺寸 {限定区域图片.shape}，跳过 {模板路径}"
+            )
+            continue
+
+        # 模板匹配（使用 GPU 加速函数）
+        匹配结果 = _gpu_match_template(限定区域图片, 模板图片, cv2.TM_CCOEFF_NORMED, 使用GPU加速, 模板路径)
+
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(匹配结果)
+
+        if max_val > best_max_val:
+            best_max_val = max_val
+            best_x = max_loc[0] + x坐标
+            best_y = max_loc[1] + y坐标
+            best_template_path = 模板路径
+
+    # ---------- 判断是否达到最低相似度 ----------
+    是否匹配 = best_max_val >= 最低相似度 and best_template_path is not None
+
+    耗时 = time.time() - 开始时间
+    if 是否匹配:
+        logger.info(
+            f"✅ 最佳匹配成功，路径：{best_template_path}, "
+            f"相似: {best_max_val:.4f}, 坐标: ({best_x}, {best_y}), "
+            f"耗时: {耗时:.4f}, 区域: {限定区域}"
+        )
+    else:
+        if best_template_path:
+            logger.info(
+                f"❌ 未满足最低相似度 {最低相似度}，最佳模板: {best_template_path}, "
+                f"相似: {best_max_val:.4f}, 坐标: ({best_x}, {best_y})"
+            )
+        else:
+            logger.info("❌ 所有模板均因尺寸过大被跳过或无有效匹配")
+
+    return 是否匹配, best_max_val, best_x, best_y, best_template_path
 
 
 def 函数_在指定区域内进行模板匹配返回横坐标范围(
@@ -1676,42 +1835,43 @@ def sort_points_left_to_right_top_to_bottom(points: List[Tuple]) -> List[Tuple[i
     sorted_points = sorted(int_points, key=lambda point: (point[0], point[1]))
 
     return sorted_points
-def 测试GPU可靠性():
-    """用已知图片测试 GPU 匹配是否正常"""
-    if not cv2.ocl.haveOpenCL():
-        print("GPU 可靠性测试不通过")
-        return False
 
-    # 创建一张 200x200 的纯黑图和一个 32x32 的纯白模板
-    test_img = np.zeros((200, 200, 3), dtype=np.uint8)
-    test_tpl = np.ones((32, 32, 3), dtype=np.uint8) * 255
-
-    # GPU 匹配
-    result_gpu = cv2.matchTemplate(
-        cv2.UMat(test_img), cv2.UMat(test_tpl), cv2.TM_CCOEFF_NORMED
-    ).get()
-    _, max_val_gpu, _, _ = cv2.minMaxLoc(result_gpu)
-
-    # CPU 匹配
-    result_cpu = cv2.matchTemplate(test_img, test_tpl, cv2.TM_CCOEFF_NORMED)
-    _, max_val_cpu, _, _ = cv2.minMaxLoc(result_cpu)
-
-    # 允许浮点误差的阈值（1e-5）
-    if abs(max_val_gpu - max_val_cpu) > 1e-5:
-        print(
-            f"GPU 匹配结果 ({max_val_gpu:.6f}) 与 CPU ({max_val_cpu:.6f}) 不符，"
-            f"建议关闭 GPU 加速"
-        )
-        return False
-    print(
-        f"GPU 匹配结果 ({max_val_gpu:.6f}) 与 CPU ({max_val_cpu:.6f}) "
-
-    )
-
-    print("GPU 可靠性测试通过")
-    return True
 
 if __name__ == "__main__":
+    def 测试GPU可靠性():
+        """用已知图片测试 GPU 匹配是否正常"""
+        if not cv2.ocl.haveOpenCL():
+            print("GPU 可靠性测试不通过")
+            return False
+
+        # 创建一张 200x200 的纯黑图和一个 32x32 的纯白模板
+        test_img = np.zeros((200, 200, 3), dtype=np.uint8)
+        test_tpl = np.ones((32, 32, 3), dtype=np.uint8) * 255
+
+        # GPU 匹配
+        result_gpu = cv2.matchTemplate(
+            cv2.UMat(test_img), cv2.UMat(test_tpl), cv2.TM_CCOEFF_NORMED
+        ).get()
+        _, max_val_gpu, _, _ = cv2.minMaxLoc(result_gpu)
+
+        # CPU 匹配
+        result_cpu = cv2.matchTemplate(test_img, test_tpl, cv2.TM_CCOEFF_NORMED)
+        _, max_val_cpu, _, _ = cv2.minMaxLoc(result_cpu)
+
+        # 允许浮点误差的阈值（1e-5）
+        if abs(max_val_gpu - max_val_cpu) > 1e-5:
+            print(
+                f"GPU 匹配结果 ({max_val_gpu:.6f}) 与 CPU ({max_val_cpu:.6f}) 不符，"
+                f"建议关闭 GPU 加速"
+            )
+            return False
+        print(
+            f"GPU 匹配结果 ({max_val_gpu:.6f}) 与 CPU ({max_val_cpu:.6f}) "
+
+        )
+
+        print("GPU 可靠性测试通过")
+        return True
     print(cv2.ocl.haveOpenCL())  # 必须为 True
     print(cv2.ocl.useOpenCL())  # 查看当前是否启用
     cv2.ocl.setUseOpenCL(True)  # 强制启用

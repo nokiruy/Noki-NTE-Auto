@@ -1,14 +1,13 @@
 import pyaudiowpatch as pyaudio
-import numpy as np
-import librosa
+import soundfile as sf
+from scipy.signal import correlate, butter, sosfiltfilt,resample_poly
 import time
+import numpy as np
 from pathlib import Path
-from scipy.signal import correlate, butter, sosfiltfilt
-import pydirectinput
+
 import sys
 import collections
 import threading
-import multiprocessing
 import tkinter.messagebox as msgbox
 
 # ==================== 路径 ====================
@@ -38,7 +37,6 @@ def 计算主频带(模板, 采样率, 能量比=0.95, 最低频率=3000):
     低频 = max(低频, 最低频率)
     高频 = min(高频, 采样率 / 2 - 1)
     return 低频, 高频
-
 def 设计滤波器(低切, 高切, 采样率, order=4):
     """
     若低切 <= 20 且高切 >= 采样率/2-1，则不过滤，返回 None。
@@ -71,7 +69,13 @@ class 音频模板:
             msgbox.showerror("参数错误", f"模板 '{名称}' 截取范围无效: 起始={起始秒}, 结束={结束秒}")
             raise ValueError("截取范围无效")
         # 加载原始音频
-        y_full, sr = librosa.load(路径, sr=采样率, duration=None)
+        y_full, sr = sf.read(路径, dtype='float32')
+        if y_full.ndim > 1:
+            y_full = y_full.mean(axis=1)  # 立体声转单声道
+        if sr != 采样率:
+            print(f"[重采样] {路径} : {sr}Hz → {采样率}Hz")
+            y_full = resample_poly(y_full, 采样率, sr)
+            sr = 采样率
         total_duration = len(y_full) / sr
         if 结束秒 is None:
             实际结束秒 = min(total_duration, 0.5)
@@ -126,10 +130,21 @@ def random_non_negative(base: float, range_val: float) -> float:
     # 确保结果非负
     return rand_val if rand_val >= 0 else 0.0
 from 后台键鼠 import 模拟鼠标左键长按,模拟按键长按
-
-def 运行主循环(环回设备, 采样率, 模板列表, 阈值, 冷却秒, 控制事件,
+import json
+from 根据txt执行脚本 import  预编译脚本动作
+def 运行主循环(current_dir,环回设备, 采样率, 模板列表, 阈值, 冷却秒, 线程事件,
                 采集块秒=0.04, 窗口余量秒=0.05, 缓冲区时长秒=None,
-                模板滤波参数=None,句柄=None):
+                模板滤波参数=None,句柄=None, 窗口矩形=None,):
+    with open(current_dir.parent / "外置配置文件夹" / "任务选择设置.json", 'r', encoding='utf-8') as file:
+
+        任务选择设置 = json.load(file)
+    弹刀动作txt文件名 = 任务选择设置["弹刀动作自定义变量"]
+    闪避动作txt文件名 = 任务选择设置["闪避动作自定义变量"]
+    弹刀动作txt文件=current_dir.parent / "外置配置文件夹" / "闪避弹刀自定义动作"/f"{弹刀动作txt文件名}.txt"
+    闪避动作txt文件 = current_dir.parent / "外置配置文件夹" / "闪避弹刀自定义动作" / f"{闪避动作txt文件名}.txt"
+
+    闪避执行动作= 预编译脚本动作(闪避动作txt文件, 窗口矩形)
+    弹刀执行动作 = 预编译脚本动作(弹刀动作txt文件, 窗口矩形)
     if 模板滤波参数 is None:
         模板滤波参数 = [(0.95, 3000)] * len(模板列表)
 
@@ -147,14 +162,12 @@ def 运行主循环(环回设备, 采样率, 模板列表, 阈值, 冷却秒, �
     p = pyaudio.PyAudio()
     声道数 = min(环回设备['maxInputChannels'], 2)
     块大小 = int(采样率 * 采集块秒)
-
-    流 = p.open(format=pyaudio.paInt16,
-                channels=声道数,
-                rate=采样率,
-                input=True,
-                input_device_index=环回设备['index'],
-                frames_per_buffer=块大小)
-
+    try:
+        流 = p.open(format=pyaudio.paInt16, channels=声道数, rate=采样率, input=True, input_device_index=环回设备['index'], frames_per_buffer=块大小)
+    except Exception as e:
+        print(f"音频流获取错误：{e}")
+        msgbox.showerror("错误", f"音频流获取错误：{e}")
+        return
     缓冲区长度 = int(缓冲区时长秒 * 采样率)
     缓冲区 = collections.deque(maxlen=缓冲区长度)
     上次触发时间 = 0.0
@@ -180,7 +193,7 @@ def 运行主循环(环回设备, 采样率, 模板列表, 阈值, 冷却秒, �
 
     try:
         print("[预采集] 等待缓冲区填充...")
-        while 控制事件.is_set() and len(缓冲区) < 检测窗口:
+        while 线程事件.is_set() and len(缓冲区) < 检测窗口:
             数据 = 流.read(块大小, exception_on_overflow=False)
             int16 = np.frombuffer(数据, dtype=np.int16)
             if 声道数 == 2:
@@ -188,14 +201,14 @@ def 运行主循环(环回设备, 采样率, 模板列表, 阈值, 冷却秒, �
             float32 = int16.astype(np.float32) / 32768.0
             缓冲区.extend(float32)
 
-        if not 控制事件.is_set():
+        if not 线程事件.is_set():
             print("[预采集] 收到停止信号")
             return
 
         print(f"[预采集] 完成 ({len(缓冲区)} 采样点)")
 
-        while 控制事件.is_set():
-            if not 控制事件.is_set():
+        while 线程事件.is_set():
+            if not 线程事件.is_set():
                 break
             数据 = 流.read(块大小, exception_on_overflow=False)
             int16 = np.frombuffer(数据, dtype=np.int16)
@@ -217,12 +230,14 @@ def 运行主循环(环回设备, 采样率, 模板列表, 阈值, 冷却秒, �
                 if 相似度 >= 阈值:
                     print(f"✅检测到 {模板.名称} 相似度:{相似度:.3f}")
                     if 模板.名称 == "闪避":
-                        模拟按键长按(句柄, 0xA0, 0.01 + random_non_negative(0.05, 0.01))
+                        闪避执行动作(句柄, 窗口矩形, 线程事件)
                     elif 模板.名称 == "反击":
-                        模拟鼠标左键长按(句柄, 640, 360, 0.05 + random_non_negative(0.05, 0.01))
+                        弹刀执行动作(句柄, 窗口矩形, 线程事件)
                     上次触发时间 = 当前时间
             # print(time.time()-现在)
-
+    except Exception as e:
+        print(f"自动闪避弹刀任务错误：{e}")
+        msgbox.showerror("错误",f"自动闪避弹刀任务错误：{e}")
 
     except KeyboardInterrupt:
         print("\n[信息] 收到 Ctrl+C")
@@ -235,22 +250,62 @@ def 运行主循环(环回设备, 采样率, 模板列表, 阈值, 冷却秒, �
 
 
 # ==================== 入口 ====================
-def 根据音频闪避反击任务(current_dir,句柄,线程控制事件,线程停止事件,阈值 = 0.2, 共享冷却秒 = 0.3,采集块秒 = 0.04,窗口余量秒 = 0.05,
+def 获取默认环回设备(p):
+    """
+    根据系统默认输出设备，寻找对应的 WASAPI 环回设备。
+    返回设备字典，找不到则返回 None。
+    """
+    try:
+        default_out = p.get_default_output_device_info()
+        default_name = default_out['name'].strip()
+    except Exception:
+        # 无法获取默认输出设备时，回退到原逻辑
+        default_name = None
+
+    loopback_candidates = []
+    for i in range(p.get_device_count()):
+        dev = p.get_device_info_by_index(i)
+        # 只考虑 WASAPI 的环回输入设备
+        if dev['maxInputChannels'] > 0 and 'Loopback' in dev['name']:
+            loopback_candidates.append(dev)
+
+    if default_name:
+        # 尝试精确匹配：环回设备名称通常为 “默认输出设备名称 (Loopback)” 或类似
+        for dev in loopback_candidates:
+            # 去除后缀可能的差异，例如 “扬声器 (Loopback)” -> “扬声器”
+            dev_name_clean = dev['name'].replace('(Loopback)', '').replace('Loopback', '').strip()
+            if dev_name_clean == default_name:
+                return dev
+        # 宽松匹配：默认输出名称包含在环回设备名中
+        for dev in loopback_candidates:
+            if default_name in dev['name']:
+                return dev
+
+    # 回退：返回找到的第一个环回设备（原逻辑）
+    return loopback_candidates[0] if loopback_candidates else None
+def 根据音频闪避反击任务(current_dir,句柄, 窗口矩形,线程控制事件,线程停止事件,阈值 = 0.2, 共享冷却秒 = 0.3,采集块秒 = 0.04,窗口余量秒 = 0.05,
                          自定义缓冲秒 = 0.2,最低频率hz = 2300):
+
     p_temp = pyaudio.PyAudio()
-    环回设备 = None
-    for i in range(p_temp.get_device_count()):
-        dev = p_temp.get_device_info_by_index(i)
-        if "Loopback" in dev['name'] and dev['maxInputChannels'] > 0:
-            环回设备 = dev
-            break
+    环回设备 = 获取默认环回设备(p_temp)
     if not 环回设备:
-        msgbox.showerror("设备错误", "未找到环回设备！")
+        print("未找到环回设备！")
+        msgbox.showerror("设备错误", "未找到任何可用的 WASAPI 环回设备，请检查声卡设置或安装虚拟音频电缆。")
         线程停止事件.clear()
-        exit()
+        线程控制事件.clear()
+        p_temp.terminate()
+        return
+    # 确保设备是输入设备
+    if 环回设备['maxInputChannels'] <= 0:
+        print(f"设备 {环回设备['name']} 不是输入设备，无法使用。")
+        msgbox.showerror("设备错误", "所选环回设备没有输入通道，无法录制音频。")
+        线程停止事件.clear()
+        线程控制事件.clear()
+        p_temp.terminate()
+        return
     采样率 = int(环回设备['defaultSampleRate'])
     p_temp.terminate()
-    print(f"[信息] 设备采样率: {采样率} Hz")
+    print(f"[信息] 设备采样率: {采样率} Hz, 设备: {环回设备['name']} (索引 {环回设备['index']})")
     需闪避攻击路径 = current_dir / "异环图片" / "怪物反击闪避" / "闪避_缩混.wav"
     需反击音频路径 = current_dir / "异环图片" / "怪物反击闪避" / "反击_缩混.wav"
     需反击2音频路径 = current_dir / "异环图片" / "怪物反击闪避" / "反击2_缩混.wav"
@@ -262,9 +317,11 @@ def 根据音频闪避反击任务(current_dir,句柄,线程控制事件,线程�
             音频模板(需反击2音频路径, "反击", 采样率, 截取范围=(0, 0.08)),
         ]
     except Exception as e:
+        print(f"模板列表初始化失败，{e}")
         msgbox.showerror("错误", f"模板列表初始化失败，{e}")
         线程停止事件.clear()
-        exit()
+        线程控制事件.clear()
+        return
 
     # 滤波配置：每个模板的 (能量比, 最低频率)
 
@@ -275,101 +332,8 @@ def 根据音频闪避反击任务(current_dir,句柄,线程控制事件,线程�
         (1.0, 最低频率hz),
 
     ]
-    运行主循环(环回设备, 采样率, 模板列表, 阈值, 共享冷却秒, 线程控制事件,
-            采集块秒, 窗口余量秒, 自定义缓冲秒, 模板滤波配置, 句柄)
+    运行主循环(current_dir,环回设备, 采样率, 模板列表, 阈值, 共享冷却秒, 线程控制事件,
+            采集块秒, 窗口余量秒, 自定义缓冲秒, 模板滤波配置, 句柄,窗口矩形)
     线程停止事件.clear()
-if __name__ == "__main__":
-    if getattr(sys, 'frozen', False):
-        当前目录 = Path(sys.executable).parent.absolute()
-    else:
-        当前目录 = Path(__file__).parent.absolute()
-    import win32gui
-    import ctypes
-    def 函数精确查找窗口句柄(目标窗口类名, 默认目标窗口标题):
 
-        """精确查找目标窗口句柄"""
-        # 先尝试根据标题和类名查找窗口
-        游戏句柄 = win32gui.FindWindow(目标窗口类名, 默认目标窗口标题)
-        if 游戏句柄:
 
-            print(f"找到目标窗口：句柄={游戏句柄}")
-            return 游戏句柄
-        else:
-            print(f"未找到目标窗口")
-        return None, None  # 没有找到窗口时返回 None
-    p_temp = pyaudio.PyAudio()
-    环回设备 = None
-    for i in range(p_temp.get_device_count()):
-        dev = p_temp.get_device_info_by_index(i)
-        if "Loopback" in dev['name'] and dev['maxInputChannels'] > 0:
-            环回设备 = dev
-            break
-    if not 环回设备:
-        msgbox.showerror("设备错误", "未找到环回设备！")
-        exit()
-    采样率 = int(环回设备['defaultSampleRate'])
-    p_temp.terminate()
-    print(f"[信息] 设备采样率: {采样率} Hz")
-    需闪避攻击路径 = 当前目录 / "异环图片" / "怪物反击闪避" / "闪避_缩混.wav"
-    需反击音频路径 = 当前目录 / "异环图片" / "怪物反击闪避" / "反击_缩混.wav"
-    需反击2音频路径 = 当前目录 / "异环图片" / "怪物反击闪避" / "反击2_缩混.wav"
-    # 加载模板
-    try:
-        模板列表 = [
-            音频模板(需闪避攻击路径, "闪避", 采样率, 截取范围=(0, 0.08)),
-            音频模板(需反击音频路径, "反击", 采样率, 截取范围=(0, 0.08)),
-            音频模板(需反击2音频路径, "反击", 采样率, 截取范围=(0, 0.08)),
-        ]
-    except ValueError:
-        exit()
-
-    # 配置参数
-    阈值 = 0.2
-    共享冷却秒 = 0.3
-    采集块秒 = 0.04
-    窗口余量秒 = 0.05
-    自定义缓冲秒 = 0.2
-
-    # 滤波配置：每个模板的 (能量比, 最低频率)
-
-    最低频率hz=2300
-    模板滤波配置 = [
-        (0.95, 最低频率hz),
-        (1.0, 最低频率hz),
-        (1.0, 最低频率hz),
-
-    ]
-
-    # ========== 线程启动演示 ==========
-    print("\n===== 线程启动演示 =====")
-    异环句柄 = 函数精确查找窗口句柄("UnrealWindow", "异环  ")  # "异环  "/"NTE  "
-    线程控制事件 = threading.Event()
-    线程控制事件.set()
-
-    线程 = threading.Thread(
-        target=运行主循环,
-        args=(环回设备, 采样率, 模板列表, 阈值, 共享冷却秒, 线程控制事件,
-              采集块秒, 窗口余量秒, 自定义缓冲秒, 模板滤波配置,异环句柄),
-        daemon=True
-    )
-    线程.start()
-
-    input("按回车停止线程...\n")
-    线程控制事件.clear()
-    线程.join()
-
-    # ========== 进程启动演示 ==========
-    print("\n===== 进程启动演示 =====")
-    进程控制事件 = multiprocessing.Event()
-    进程控制事件.set()
-
-    进程 = multiprocessing.Process(
-        target=运行主循环,
-        args=(环回设备, 采样率, 模板列表, 阈值, 共享冷却秒, 进程控制事件,
-              采集块秒, 窗口余量秒, 自定义缓冲秒, 模板滤波配置)
-    )
-    进程.start()
-
-    input("按回车停止进程...\n")
-    进程控制事件.clear()
-    进程.join()

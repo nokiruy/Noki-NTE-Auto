@@ -1,33 +1,85 @@
 import json
-import webbrowser
 from tkinter import messagebox
-
-import requests
-import certifi
 import ssl
 import re
+import requests
+import certifi
 from packaging import version
 from bs4 import BeautifulSoup
 from pathlib import Path
 import sys
-
 import tkinter as tk
+from urllib.parse import urlparse
+from typing import Optional
+import ctypes
+class OpenUrlDLL:
+    """调用 OpenUrl.dll 打开网址（不会抛出异常导致崩溃）"""
+    def __init__(self, dll_path: Optional[str] = None):
+        if getattr(sys, 'frozen', False):
+            base_dir = Path(sys.executable).parent
+        else:
+            base_dir = Path(__file__).parent
+
+        if dll_path is None:
+            dll_path = str(base_dir / "UI" /"打开网页" /"OpenUrl.dll")
+
+        self._dll = ctypes.CDLL(dll_path)
+        self._dll.OpenURL.argtypes = [ctypes.c_wchar_p]
+        self._dll.OpenURL.restype = ctypes.c_int
+
+    def open_url(self, url: str) -> bool:
+        """打开网址，成功返回 True，失败返回 False"""
+        try:
+            return self._dll.OpenURL(url) == 0
+        except Exception as e:
+            print(f"OpenURL 调用异常: {e}")
+            return False
+
+    def open(self, url: str, new: int = 0, autoraise: bool = True) -> bool:
+        """
+        与 webbrowser.open 参数完全兼容
+        :param url: 网址
+        :param new: 0=同一窗口, 1=新窗口, 2=新标签页 (当前 DLL 无法区分，仅保持接口一致)
+        :param autoraise: 是否自动提升窗口 (忽略)
+        :return: 成功打开返回 True
+        """
+        # 因为 ShellExecute 无法精确控制 new 行为，所有打开方式相同
+        # 如果需要强制新标签页，可连续调用两次（大多数浏览器会打开两个标签页）
+        return self.open_url(url)
+opener = OpenUrlDLL()
+# ==================== 新增辅助函数 ====================
+def 确保列表(参数):
+    """将非列表参数转换为单元素列表，列表参数保持不变"""
+    return 参数 if isinstance(参数, list) else [参数]
 
 
+def 处理更新网站列表(当前版本, 更新网站列表):
+    """
+    遍历网站列表，返回第一个成功获取的版本信息，失败返回None
+    """
+    for 网站 in 更新网站列表:
+        print(f"尝试从 {网站} 获取版本信息...")
+        版本信息 = 获取最新版本信息(当前版本, 网站)
+        if 版本信息 is not None:
+            print(f"从 {网站} 成功获取版本信息")
+            return 版本信息
+    print("所有网站均获取版本信息失败")
+    return None
+
+
+# ==================== 原函数修改 ====================
 def 获取最新版本信息(当前版本, 更新网站):
     """
-    从GitHub获取最新版本信息，优先API，失败后尝试网页解析
+    从GitHub或Gitee获取最新版本信息，优先API，失败后尝试网页解析
     """
     版本信息 = None
 
-    # 1. 优先尝试API方式
-    if "api.github.com" not in 更新网站:
-        # 如果是普通网址，转换为API网址
-        api网址 = 转换为API网址(更新网站)
-        if api网址:
-            版本信息 = 通过API获取版本信息(api网址, 当前版本)
+    # 1. 优先尝试API方式（自动识别GitHub/Gitee）
+    api网址 = 转换为API网址(更新网站)
+    if api网址:
+        版本信息 = 通过API获取版本信息(api网址, 当前版本)
 
-    # 2. 如果API方式失败或没有API网址，尝试直接使用传入的网址
+    # 2. 如果API方式失败，尝试直接使用传入的网址进行网页解析
     if not 版本信息:
         版本信息 = 通过网页获取版本信息(更新网站, 当前版本)
 
@@ -36,14 +88,27 @@ def 获取最新版本信息(当前版本, 更新网站):
 
 def 转换为API网址(普通网址):
     """
-    将GitHub普通网址转换为API网址
+    将GitHub或Gitee的普通网址转换为对应的API网址
     """
     try:
-        # 提取仓库路径
-        匹配结果 = re.search(r'github\.com/([^/]+/[^/]+)', 普通网址)
-        if 匹配结果:
-            仓库路径 = 匹配结果.group(1)
-            return f"https://api.github.com/repos/{仓库路径}/releases"
+        解析结果 = urlparse(普通网址)
+        域名 = 解析结果.netloc.lower()
+        路径 = 解析结果.path.strip('/')
+
+        # GitHub API
+        if 'github.com' in 域名:
+            匹配结果 = re.search(r'([^/]+/[^/]+)/releases', 路径)
+            if 匹配结果:
+                仓库路径 = 匹配结果.group(1)
+                return f"https://api.github.com/repos/{仓库路径}/releases"
+
+        # Gitee API
+        elif 'gitee.com' in 域名:
+            匹配结果 = re.search(r'([^/]+/[^/]+)/releases', 路径)
+            if 匹配结果:
+                仓库路径 = 匹配结果.group(1)
+                return f"https://gitee.com/api/v5/repos/{仓库路径}/releases"
+
     except Exception as 错误:
         print(f"转换API网址时出错: {错误}")
 
@@ -52,7 +117,7 @@ def 转换为API网址(普通网址):
 
 def 通过API获取版本信息(api网址, 当前版本):
     """
-    通过GitHub API获取版本信息
+    通过GitHub或Gitee API获取版本信息（两者返回格式相似）
     """
     print(f"尝试通过API获取版本信息: {api网址}")
 
@@ -61,20 +126,20 @@ def 通过API获取版本信息(api网址, 当前版本):
         return None
 
     try:
-        # 解析JSON数据
         releases = 响应.json()
         if not releases:
             return None
 
-        # 获取最新版本
-        最新版本 = releases[0]['tag_name']
+        # 获取最新版本（API通常按发布时间降序排列）
+        最新发布 = max(releases, key=lambda r: version.parse(r['tag_name'].lstrip('v')))
+        最新版本 = 最新发布['tag_name']
 
         # 比较版本
         当前版本号 = version.parse(当前版本)
         最新版本号 = version.parse(最新版本)
 
         if 最新版本号 > 当前版本号:
-            # 获取更新日志
+            # 收集所有比当前版本新的更新日志
             更新日志 = ""
             for release in releases:
                 release版本号 = version.parse(release['tag_name'])
@@ -97,7 +162,7 @@ def 通过API获取版本信息(api网址, 当前版本):
 
 def 通过网页获取版本信息(网页网址, 当前版本):
     """
-    通过解析GitHub网页获取版本信息
+    通过解析网页（支持GitHub和Gitee）获取版本信息
     """
     print(f"尝试通过网页获取版本信息: {网页网址}")
 
@@ -106,41 +171,60 @@ def 通过网页获取版本信息(网页网址, 当前版本):
         return None
 
     try:
-        # 使用BeautifulSoup解析HTML
         soup = BeautifulSoup(响应.text, 'html.parser')
 
-        # 查找最新版本标签
+        # 尝试GitHub的HTML结构
         版本标签列表 = soup.find_all('div', class_='release')
         if not 版本标签列表:
             版本标签列表 = soup.find_all('div', class_='release-entry')
+
+        # 如果GitHub结构未找到，尝试Gitee的HTML结构
+        if not 版本标签列表:
+            版本标签列表 = soup.find_all('div', class_='release-item')
 
         if not 版本标签列表:
             print("未找到版本信息")
             return None
 
-        # 获取最新版本信息
         最新版本标签 = 版本标签列表[0]
 
-        # 提取版本号
+        # 提取版本号（兼容GitHub和Gitee）
+        版本号元素 = None
+        # GitHub样式
         版本号元素 = 最新版本标签.find('a', href=re.compile(r'/releases/tag/'))
         if not 版本号元素:
             版本号元素 = 最新版本标签.find('h2')
+        # Gitee样式
+        if not 版本号元素:
+            版本号元素 = 最新版本标签.find('a', class_='release-tag')
+        if not 版本号元素:
+            版本号元素 = 最新版本标签.find('span', class_='release-version')
 
         if not 版本号元素:
             print("未找到版本号")
             return None
 
         最新版本 = 版本号元素.get_text().strip()
+        # 移除可能的前导 'v'
+        if 最新版本.startswith('v'):
+            最新版本 = 最新版本[1:]
 
         # 比较版本
         当前版本号 = version.parse(当前版本)
         最新版本号 = version.parse(最新版本)
 
         if 最新版本号 > 当前版本号:
-            # 提取更新日志
+            # 提取更新日志（兼容两种平台）
+            更新日志容器 = None
+            # GitHub
             更新日志容器 = 最新版本标签.find('div', class_='markdown-body')
             if not 更新日志容器:
                 更新日志容器 = 最新版本标签.find('div', class_='release-body')
+            # Gitee
+            if not 更新日志容器:
+                更新日志容器 = 最新版本标签.find('div', class_='release-body-content')
+            if not 更新日志容器:
+                更新日志容器 = 最新版本标签.find('div', class_='note-body')
 
             更新日志 = ""
             if 更新日志容器:
@@ -148,22 +232,40 @@ def 通过网页获取版本信息(网页网址, 当前版本):
 
             # 获取所有比当前版本新的版本信息
             所有更新日志 = f"版本 {最新版本}:\n{更新日志}\n\n"
-            for i, 版本标签 in enumerate(版本标签列表[1:], start=1):
-                当前版本标签号元素 = 版本标签.find('a', href=re.compile(r'/releases/tag/'))
-                if 当前版本标签号元素:
-                    当前标签版本 = 当前版本标签号元素.get_text().strip()
-                    当前标签版本号 = version.parse(当前标签版本)
+            for 版本标签 in 版本标签列表[1:]:
+                当前标签版本 = None
+                # 尝试GitHub
+                版本号元素2 = 版本标签.find('a', href=re.compile(r'/releases/tag/'))
+                if not 版本号元素2:
+                    版本号元素2 = 版本标签.find('h2')
+                # 尝试Gitee
+                if not 版本号元素2:
+                    版本号元素2 = 版本标签.find('a', class_='release-tag')
+                if not 版本号元素2:
+                    continue
 
-                    if 当前标签版本号 > 当前版本号:
-                        当前更新日志容器 = 版本标签.find('div', class_='markdown-body')
-                        if not 当前更新日志容器:
-                            当前更新日志容器 = 版本标签.find('div', class_='release-body')
+                当前标签版本 = 版本号元素2.get_text().strip()
+                if 当前标签版本.startswith('v'):
+                    当前标签版本 = 当前标签版本[1:]
 
-                        当前更新日志 = ""
-                        if 当前更新日志容器:
-                            当前更新日志 = 当前更新日志容器.get_text().strip()
+                当前标签版本号 = version.parse(当前标签版本)
+                if 当前标签版本号 > 当前版本号:
+                    当前更新日志容器 = None
+                    # GitHub
+                    当前更新日志容器 = 版本标签.find('div', class_='markdown-body')
+                    if not 当前更新日志容器:
+                        当前更新日志容器 = 版本标签.find('div', class_='release-body')
+                    # Gitee
+                    if not 当前更新日志容器:
+                        当前更新日志容器 = 版本标签.find('div', class_='release-body-content')
+                    if not 当前更新日志容器:
+                        当前更新日志容器 = 版本标签.find('div', class_='note-body')
 
-                        所有更新日志 += f"版本 {当前标签版本}:\n{当前更新日志}\n\n"
+                    当前更新日志 = ""
+                    if 当前更新日志容器:
+                        当前更新日志 = 当前更新日志容器.get_text().strip()
+
+                    所有更新日志 += f"版本 {当前标签版本}:\n{当前更新日志}\n\n"
 
             return {
                 '最新版本': 最新版本,
@@ -179,9 +281,7 @@ def 通过网页获取版本信息(网页网址, 当前版本):
 
 
 def 安全获取响应(网址):
-    """
-    安全获取HTTP响应，成功获取后立即停止
-    """
+    """（保持不变，原函数完全可用）"""
     方法列表 = [
         ('系统证书', lambda: requests.get(网址, timeout=10)),
         ('certifi证书', lambda: requests.get(网址, timeout=10,
@@ -195,25 +295,25 @@ def 安全获取响应(网址):
         try:
             print(f"尝试使用{方法名称}...")
             响应 = 请求函数()
-
             if 响应.status_code == 200:
                 print(f"使用{方法名称}成功")
                 return 响应
             else:
                 print(f"使用{方法名称}失败，状态码: {响应.status_code}")
-
         except requests.exceptions.SSLError as ssl错误:
             print(f"使用{方法名称} SSL错误: {ssl错误}")
         except Exception as 错误:
             print(f"使用{方法名称} 其他错误: {错误}")
-
     print("所有方法都失败了")
     return None
 
 
-# 检查文件是否存在
 def 处理失败计数(结果, 更新网站):
-    # 获取文件路径
+    """修改：当更新网站为列表时，取第一个元素用于打开"""
+    # 确保更新网站是字符串（取第一个）
+    if isinstance(更新网站, list):
+        更新网站 = 更新网站[0] if 更新网站 else ""
+
     if getattr(sys, 'frozen', False):
         current_dir = Path(sys.executable).parent.absolute()
     else:
@@ -221,60 +321,49 @@ def 处理失败计数(结果, 更新网站):
 
     失败计数文件 = current_dir / "update_check.json"
     try:
-        # 如果文件存在，读取当前计数
         if 失败计数文件.exists():
             with open(失败计数文件, 'r', encoding='utf-8') as f:
                 try:
                     数据 = json.load(f)
                 except json.JSONDecodeError:
-                    # 如果文件内容不是有效的JSON，则重置数据
                     数据 = {"计数": 0}
         else:
-            # 如果文件不存在，初始化数据
             数据 = {"计数": 0}
 
-        # 根据结果更新计数
         if 结果:
             数据["计数"] = 0
         else:
-            # 确保有"计数"键
             if "计数" not in 数据:
                 数据["计数"] = 0
             数据["计数"] = 数据["计数"] + 1
 
-            # 检查失败计数是否大于等于7
             if 数据["计数"] >= 7:
-                # 打开网址
                 if 更新网站:
                     try:
                         root = tk.Tk()
                         root.withdraw()
                         messagebox.showerror("更新信息获取错误", "累计七天未获取更新信息成功，现在将打开更新网址")
-                        webbrowser.open(更新网站)
+                        if opener.open_url(更新网站):
+                            print(f"成功打开 {更新网站}")
+                        else:
+                            print("打开失败，请检查 DLL 或网络")
+
                         print(f"失败次数达到{数据['计数']}次，已打开网址: {更新网站}")
-                        # 归零计数
                         数据["计数"] = 0
                     except Exception as e:
                         print(f"打开网址失败: {e}")
 
-
-
-        # 写入json文件
         with open(失败计数文件, 'w', encoding='utf-8') as f:
             json.dump(数据, f, ensure_ascii=False, indent=2)
 
         return 数据["计数"]
-
     except Exception as e:
         print(f"处理失败计数时出错: {e}")
-        # 出错时返回0或适当的值
         return 0
 
 
 def 使用自定义SSL上下文(网址):
-    """
-    使用自定义的SSL上下文
-    """
+    """（保持不变）"""
     ssl上下文 = ssl.create_default_context()
     ssl上下文.check_hostname = False
     ssl上下文.verify_mode = ssl.CERT_NONE
@@ -285,23 +374,25 @@ def 使用自定义SSL上下文(网址):
         return 响应
 
 
-def 检查更新(当前版本, 更新网站,是否打开网站=False):
+def 检查更新(当前版本, 更新网站, 是否打开网站=False):
     """
     检查更新的主入口函数
+    参数 更新网站 可以是字符串或字符串列表
     """
     try:
+        # 将输入统一转为列表
+        网站列表 = 确保列表(更新网站)
+
         print(f"开始检查更新...")
         print(f"当前版本: {当前版本}")
-        print(f"更新网站: {更新网站}")
+        print(f"更新网站列表: {网站列表}")
 
+        # 遍历所有网站获取版本信息
+        版本信息 = 处理更新网站列表(当前版本, 网站列表)
 
-
-
-
-
-        # 获取最新版本信息
-        版本信息 = 获取最新版本信息(当前版本, 更新网站)
-        处理失败计数(版本信息, 更新网站)
+        # 记录整体成功/失败状态，失败时传入第一个网站用于计数文件
+        整体成功 = (版本信息 is not None)
+        处理失败计数(整体成功, 网站列表[0] if 网站列表 else "")
 
         if not 版本信息:
             return "获取版本信息失败，请手动复制上方任意链接到浏览器查看更新，并检查网络配置，获取版本信息失败，请手动复制上方任意链接到浏览器查看更新，并检查网络配置，获取版本信息失败"
@@ -311,25 +402,26 @@ def 检查更新(当前版本, 更新网站,是否打开网站=False):
             更新信息 += f"📊 最新版本: {版本信息['最新版本']}\n"
             更新信息 += f"📋 当前版本: {当前版本}\n\n"
             return 更新信息
-        if  not 版本信息.get('更新日志'):
-
+        if not 版本信息.get('更新日志'):
             更新信息 = f"📊 最新版本: {版本信息['最新版本']}\n"
             更新信息 += f"📋 当前版本: {当前版本}\n\n"
             更新信息 += f"未获取到更新日志"
             return 更新信息
 
-        # 生成更新信息
         更新信息 = f"发现新版本！\n\n"
         更新信息 += f"📊 最新版本: {版本信息['最新版本']}\n"
         更新信息 += f"📋 当前版本: {当前版本}\n\n"
         更新信息 += f"📝 更新内容:\n{版本信息['更新日志']}"
         if 是否打开网站:
-            webbrowser.open(更新网站)
+            # 打开第一个网站
+            if opener.open_url(网站列表[0] if 网站列表 else ""):
+                print("成功打开 网站")
+            else:
+                print("打开失败，请检查 DLL 或网络")
         return 更新信息
 
     except Exception as 错误:
-        处理失败计数(False, 更新网站)
-
+        处理失败计数(False, 更新网站 if not isinstance(更新网站, list) else (更新网站[0] if 更新网站 else ""))
         错误信息 = f"检查更新时出现错误: {错误}请手动复制上方任意链接到浏览器查看更新，并检查网络配置，检查更新时出现错误: {错误}请手动复制上方任意链接到浏览器查看更新，并检查网络配置，检查更新时出现错误: {错误}请手动复制上方任意链接到浏览器查看更新，并检查网络配置"
         print(错误信息)
         return 错误信息
@@ -337,37 +429,39 @@ def 检查更新(当前版本, 更新网站,是否打开网站=False):
 
 def 快速检查更新(当前版本, 仓库地址):
     """
-    快速检查更新，自动处理API和网页网址
+    快速检查更新，自动处理API和网页网址，支持列表参数
     """
     print(f"快速检查更新...")
+    网站列表 = 确保列表(仓库地址)
 
-    # 如果传入的是API网址，直接使用
-    if "api.github.com" in 仓库地址:
-        api网址 = 仓库地址
-        网页网址 = 仓库地址.replace("api.github.com/repos/", "github.com/").replace("/releases", "")
-    else:
-        # 否则尝试构建API网址
-        网页网址 = 仓库地址
-        api网址 = 转换为API网址(仓库地址)
+    for 网址 in 网站列表:
+        if "api.github.com" in 网址:
+            api网址 = 网址
+            网页网址 = 网址.replace("api.github.com/repos/", "github.com/").replace("/releases", "")
+        elif "gitee.com/api/v5" in 网址:
+            # Gitee API 网址转网页网址
+            网页网址 = 网址.replace("gitee.com/api/v5/repos/", "gitee.com/").replace("/releases", "")
+            api网址 = 网址
+        else:
+            网页网址 = 网址
+            api网址 = 转换为API网址(网址)
 
-    # 1. 优先尝试API
-    if api网址:
-        版本信息 = 通过API获取版本信息(api网址, 当前版本)
+        # 1. 优先尝试API
+        if api网址:
+            版本信息 = 通过API获取版本信息(api网址, 当前版本)
+            if 版本信息:
+                return 处理版本信息(版本信息, 当前版本)
+
+        # 2. API失败后尝试网页
+        版本信息 = 通过网页获取版本信息(网页网址, 当前版本)
         if 版本信息:
             return 处理版本信息(版本信息, 当前版本)
-
-    # 2. API失败后尝试网页
-    版本信息 = 通过网页获取版本信息(网页网址, 当前版本)
-    if 版本信息:
-        return 处理版本信息(版本信息, 当前版本)
 
     return "获取版本信息失败"
 
 
 def 处理版本信息(版本信息, 当前版本):
-    """
-    处理版本信息并生成更新消息
-    """
+    """（保持不变）"""
     if 版本信息.get('最新版本') == 当前版本 or not 版本信息.get('更新日志'):
         return "当前已是最新版本"
 
@@ -377,9 +471,6 @@ def 处理版本信息(版本信息, 当前版本):
     更新信息 += f"📝 更新内容:\n{版本信息['更新日志']}"
 
     return 更新信息
-
-
-
 
 def 测试证书方法(测试网址=None):
     """
@@ -642,139 +733,3 @@ def 诊断证书问题():
    - 手动指定证书路径
     """)
 
-# 如果直接运行此脚本，执行测试
-if __name__ == "__main__":
-    def 测试失败计数功能():
-        """
-        测试函数：模拟多次失败和成功的情况
-        """
-        # 测试用的网址
-        测试网址 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
-
-        print("开始测试失败计数功能...")
-        print("=" * 50)
-
-        # 模拟多次失败
-        print("模拟连续失败:")
-        for i in range(1, 11):
-            当前计数 = 处理失败计数(False, 测试网址)
-            print(f"  第{i}次失败，当前计数: {当前计数}")
-
-            if i % 7 == 0:
-                print(f"  → 已触发第{i}次失败，应已打开网址并重置计数")
-
-        print("-" * 30)
-
-        # 模拟一次成功（应重置计数）
-        print("模拟一次成功:")
-        最终计数 = 处理失败计数(True, 测试网址)
-        print(f"  成功处理后，当前计数: {最终计数}")
-
-        print("-" * 30)
-
-        # 再次模拟失败
-        print("再次模拟失败:")
-        for i in range(1, 4):
-            当前计数 = 处理失败计数(False, 测试网址)
-            print(f"  第{i}次失败，当前计数: {当前计数}")
-
-        print("=" * 50)
-        print("测试完成!")
-
-        # 读取并显示最终文件内容
-        if getattr(sys, 'frozen', False):
-            current_dir = Path(sys.executable).parent.absolute()
-        else:
-            current_dir = Path(__file__).parent.absolute()
-
-        失败计数文件 = current_dir / "update_check.json"
-        if 失败计数文件.exists():
-            with open(失败计数文件, 'r', encoding='utf-8') as f:
-                try:
-                    最终数据 = json.load(f)
-                    print(f"最终文件内容: {最终数据}")
-                except json.JSONDecodeError:
-                    print("文件内容不是有效的JSON")
-    测试失败计数功能()
-"""if __name__ == "__main__":
-    # 设置当前版本
-    当前版本 = "v3.68.84"
-
-    print("GitHub Release更新检查工具")
-    print(f"当前版本: {当前版本}")
-    print()
-
-    # 示例1：使用API网址
-    print("=" * 50)
-    print("示例1: 使用API网址")
-    print("=" * 50)
-    api网址 = "https://api.github.com/repos/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
-    更新信息1 = 快速检查更新(当前版本, api网址)
-    print(更新信息1)
-
-    # 示例2：使用网页网址（自动转换为API）
-    print("\n" + "=" * 50)
-    print("示例2: 使用网页网址")
-    print("=" * 50)
-    网页网址 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
-    更新信息2 = 快速检查更新(当前版本, 网页网址)
-    print(更新信息2)
-
-    # 示例3：使用完整函数
-    print("\n" + "=" * 50)
-    print("示例3: 使用完整函数")
-    print("=" * 50)
-    网页网址 = "https://github.com/nokiruy/Noki-Heaven-Burns-Red-Auto/releases"
-    更新信息3 = 检查更新(当前版本, 网页网址)
-    print(更新信息3)
-if __name__ == "__main__":
-    import sys
-
-    print("🔧 GitHub更新检查工具 - 证书方法测试")
-    print("=" * 60)
-
-    # 让用户选择测试模式
-    print("请选择测试模式:")
-    print("1. 测试单个网址")
-    print("2. 测试多个网址")
-    print("3. 诊断证书问题")
-    print("4. 运行所有测试")
-
-    选择 = input("请输入选择 (1-4): ").strip()
-
-    if 选择 == "1":
-        # 测试单个网址
-        测试网址 = input("请输入测试网址 (直接回车使用默认): ").strip()
-        if not 测试网址:
-            测试网址 = None
-        测试证书方法(测试网址)
-
-    elif 选择 == "2":
-        # 测试多个网址
-        测试特定网址列表()
-
-    elif 选择 == "3":
-        # 诊断证书问题
-        诊断证书问题()
-
-    elif 选择 == "4":
-        # 运行所有测试
-        print("\n" + "=" * 60)
-        print("开始所有测试")
-        print("=" * 60)
-
-        # 1. 测试单个网址
-        print("\n📋 测试1: 单个网址测试")
-        测试证书方法()
-
-        # 2. 测试多个网址
-        print("\n\n📋 测试2: 多网址测试")
-        测试特定网址列表()
-
-        # 3. 诊断证书问题
-        print("\n\n📋 测试3: 证书问题诊断")
-        诊断证书问题()
-
-    else:
-        print("无效选择，使用默认测试")
-        测试证书方法()"""
