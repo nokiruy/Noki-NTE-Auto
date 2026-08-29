@@ -37,7 +37,7 @@ When using this tool, please change the UI language of the game NTE to Simplifie
   - 在txt文件中用中文编写自定义简单脚本
   - 店长特供
   - 呗果点赞收藏，评论求互赞，以及水贴
- 
+  - 九百九十九夜
 
 
 - **辅助功能**
