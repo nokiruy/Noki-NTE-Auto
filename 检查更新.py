@@ -118,6 +118,7 @@ def 转换为API网址(普通网址):
 def 通过API获取版本信息(api网址, 当前版本):
     """
     通过GitHub或Gitee API获取版本信息（两者返回格式相似）
+    修改：对 releases 按版本号降序排序，确保更新日志从新到旧
     """
     print(f"尝试通过API获取版本信息: {api网址}")
 
@@ -130,8 +131,15 @@ def 通过API获取版本信息(api网址, 当前版本):
         if not releases:
             return None
 
-        # 获取最新版本（API通常按发布时间降序排列）
-        最新发布 = max(releases, key=lambda r: version.parse(r['tag_name'].lstrip('v')))
+        # ---------- 新增排序：按版本号降序（最新在前） ----------
+        releases_sorted = sorted(
+            releases,
+            key=lambda r: version.parse(r['tag_name'].lstrip('v')),
+            reverse=True
+        )
+
+        # 获取最新版本（排序后第一个）
+        最新发布 = releases_sorted[0]
         最新版本 = 最新发布['tag_name']
 
         # 比较版本
@@ -139,9 +147,9 @@ def 通过API获取版本信息(api网址, 当前版本):
         最新版本号 = version.parse(最新版本)
 
         if 最新版本号 > 当前版本号:
-            # 收集所有比当前版本新的更新日志
+            # 按排序后的顺序收集所有比当前版本新的更新日志
             更新日志 = ""
-            for release in releases:
+            for release in releases_sorted:
                 release版本号 = version.parse(release['tag_name'])
                 if release版本号 > 当前版本号:
                     更新日志 += f"版本 {release['tag_name']}:\n"
@@ -163,6 +171,7 @@ def 通过API获取版本信息(api网址, 当前版本):
 def 通过网页获取版本信息(网页网址, 当前版本):
     """
     通过解析网页（支持GitHub和Gitee）获取版本信息
+    修改：对所有版本标签按版本号降序排序，确保更新日志从新到旧
     """
     print(f"尝试通过网页获取版本信息: {网页网址}")
 
@@ -186,86 +195,69 @@ def 通过网页获取版本信息(网页网址, 当前版本):
             print("未找到版本信息")
             return None
 
-        最新版本标签 = 版本标签列表[0]
+        # ---------- 新增强：提取每个标签的版本号并排序 ----------
+        版本信息列表 = []  # 存储 (版本号对象, 版本号字符串, 标签对象)
+        for 标签 in 版本标签列表:
+            # 提取版本号（兼容GitHub和Gitee）
+            版本号元素 = None
+            版本号元素 = 标签.find('a', href=re.compile(r'/releases/tag/'))
+            if not 版本号元素:
+                版本号元素 = 标签.find('h2')
+            if not 版本号元素:
+                版本号元素 = 标签.find('a', class_='release-tag')
+            if not 版本号元素:
+                版本号元素 = 标签.find('span', class_='release-version')
 
-        # 提取版本号（兼容GitHub和Gitee）
-        版本号元素 = None
-        # GitHub样式
-        版本号元素 = 最新版本标签.find('a', href=re.compile(r'/releases/tag/'))
-        if not 版本号元素:
-            版本号元素 = 最新版本标签.find('h2')
-        # Gitee样式
-        if not 版本号元素:
-            版本号元素 = 最新版本标签.find('a', class_='release-tag')
-        if not 版本号元素:
-            版本号元素 = 最新版本标签.find('span', class_='release-version')
+            if not 版本号元素:
+                continue
 
-        if not 版本号元素:
-            print("未找到版本号")
+            版本号字符串 = 版本号元素.get_text().strip()
+            if 版本号字符串.startswith('v'):
+                版本号字符串 = 版本号字符串[1:]
+
+            try:
+                版本号对象 = version.parse(版本号字符串)
+                版本信息列表.append((版本号对象, 版本号字符串, 标签))
+            except:
+                continue
+
+        if not 版本信息列表:
+            print("未找到有效的版本号")
             return None
 
-        最新版本 = 版本号元素.get_text().strip()
-        # 移除可能的前导 'v'
-        if 最新版本.startswith('v'):
-            最新版本 = 最新版本[1:]
+        # 按版本号降序排序（最新在前）
+        版本信息列表.sort(key=lambda x: x[0], reverse=True)
+
+        # 最新版本即为第一个
+        最新版本号对象, 最新版本字符串, 最新标签 = 版本信息列表[0]
+        最新版本 = 最新版本字符串
 
         # 比较版本
         当前版本号 = version.parse(当前版本)
-        最新版本号 = version.parse(最新版本)
+        最新版本号 = 最新版本号对象
 
         if 最新版本号 > 当前版本号:
-            # 提取更新日志（兼容两种平台）
-            更新日志容器 = None
-            # GitHub
-            更新日志容器 = 最新版本标签.find('div', class_='markdown-body')
-            if not 更新日志容器:
-                更新日志容器 = 最新版本标签.find('div', class_='release-body')
-            # Gitee
-            if not 更新日志容器:
-                更新日志容器 = 最新版本标签.find('div', class_='release-body-content')
-            if not 更新日志容器:
-                更新日志容器 = 最新版本标签.find('div', class_='note-body')
-
-            更新日志 = ""
-            if 更新日志容器:
-                更新日志 = 更新日志容器.get_text().strip()
-
-            # 获取所有比当前版本新的版本信息
-            所有更新日志 = f"版本 {最新版本}:\n{更新日志}\n\n"
-            for 版本标签 in 版本标签列表[1:]:
-                当前标签版本 = None
-                # 尝试GitHub
-                版本号元素2 = 版本标签.find('a', href=re.compile(r'/releases/tag/'))
-                if not 版本号元素2:
-                    版本号元素2 = 版本标签.find('h2')
-                # 尝试Gitee
-                if not 版本号元素2:
-                    版本号元素2 = 版本标签.find('a', class_='release-tag')
-                if not 版本号元素2:
-                    continue
-
-                当前标签版本 = 版本号元素2.get_text().strip()
-                if 当前标签版本.startswith('v'):
-                    当前标签版本 = 当前标签版本[1:]
-
-                当前标签版本号 = version.parse(当前标签版本)
-                if 当前标签版本号 > 当前版本号:
-                    当前更新日志容器 = None
+            # 收集所有比当前版本新的版本日志（按降序顺序）
+            所有更新日志 = ""
+            for 版本号对象, 版本号字符串, 标签 in 版本信息列表:
+                if 版本号对象 > 当前版本号:
+                    # 提取更新日志容器
+                    更新日志容器 = None
                     # GitHub
-                    当前更新日志容器 = 版本标签.find('div', class_='markdown-body')
-                    if not 当前更新日志容器:
-                        当前更新日志容器 = 版本标签.find('div', class_='release-body')
+                    更新日志容器 = 标签.find('div', class_='markdown-body')
+                    if not 更新日志容器:
+                        更新日志容器 = 标签.find('div', class_='release-body')
                     # Gitee
-                    if not 当前更新日志容器:
-                        当前更新日志容器 = 版本标签.find('div', class_='release-body-content')
-                    if not 当前更新日志容器:
-                        当前更新日志容器 = 版本标签.find('div', class_='note-body')
+                    if not 更新日志容器:
+                        更新日志容器 = 标签.find('div', class_='release-body-content')
+                    if not 更新日志容器:
+                        更新日志容器 = 标签.find('div', class_='note-body')
 
-                    当前更新日志 = ""
-                    if 当前更新日志容器:
-                        当前更新日志 = 当前更新日志容器.get_text().strip()
+                    更新日志 = ""
+                    if 更新日志容器:
+                        更新日志 = 更新日志容器.get_text().strip()
 
-                    所有更新日志 += f"版本 {当前标签版本}:\n{当前更新日志}\n\n"
+                    所有更新日志 += f"版本 {版本号字符串}:\n{更新日志}\n\n"
 
             return {
                 '最新版本': 最新版本,
