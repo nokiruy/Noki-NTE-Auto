@@ -1760,7 +1760,7 @@ def 函数主程序():
     if 幻塔脚本运行:
         current_version ="0.0.1"
     if 异环脚本运行:
-        current_version = "1.8.68"
+        current_version = "1.8.69"
     title = f"NHAuto-v{current_version} bilibili@NOKIRUY"
     window.title(title)
 
@@ -3558,6 +3558,7 @@ def 函数主程序():
 
 
                 def 黄金双脆窗口创建():
+
                     文本容器 = ttk.LabelFrame(黄金双脆子容器)
                     文本容器.grid(row=0, column=0, pady=10, sticky="w")
 
@@ -3573,7 +3574,7 @@ def 函数主程序():
                     参数容器.grid(row=1, column=0, pady=10, sticky="w")
                     tk.Label(参数容器, text="挂机次数（0 为无限）：", font=("微软雅黑", 16)).grid(
                         row=0, column=0, sticky="w")
-                    黄金双脆任务次数变量 = tk.IntVar(value=999)
+                    黄金双脆任务次数变量 = tk.IntVar(value=9999)
                     tk.Spinbox(参数容器, from_=0, to=99999, increment=10, textvariable=黄金双脆任务次数变量,
                                font=("微软雅黑", 16), relief="solid", width=6).grid(
                         row=0, column=1, padx=(0, 24))
@@ -3606,13 +3607,26 @@ def 函数主程序():
                     提示容器 = ttk.Frame(文本容器)
                     提示容器.grid(row=99, column=0, pady=10, sticky="w")
                     tk.Label(提示容器,
-                             text="流程：活动页点【前往】→ 匹配页点【开始匹配】→ 进对局后立刻按 ESC"
-                                  "→ 弹窗点【确认】→ 结算页点【离开】→ 回到活动页循环\n"
+                             text="流程：活动页点【前往】→ 匹配页点【开始匹配】→ 进对局后立刻按 ESC\n"
+                                  "→ 弹窗点【确认】→ 结算页点【离开】→ 回到活动页循环\n\n"
                                   "全流程实时监控（约 0.1 秒一轮），ESC 一出现就按，没有任何“先等 N 秒”的延迟\n"
                                   "启动前请先把游戏停在【活动 - 咔滋！黄金双脆】页面，"
                                   "并确认游戏分辨率为 1280x720\n"
-                                  "点击出现不稳定请更换为前台鼠标；刷的是秒退失败奖励，次数填 0 表示一直刷",
+                                  "点击出现不稳定请更换为前台鼠标；\n刷的是秒退失败奖励，次数填 0 表示一直刷",
                              font=("楷体", 16, "bold", "italic"), fg="blue").grid(row=0, column=0, sticky="w")
+                    黄金双脆图片标签 = tk.Label(文本容器)
+                    黄金双脆图片标签.grid(row=100, column=0, sticky="w")
+                    图片路径 = current_dir / "异环图片"  / "黄金双脆" / "黄金双脆图片任务启动界面.png"
+                    if 图片路径.exists():
+                        原始图片 = Image.open(图片路径)
+                        宽, 高 = 原始图片.size
+                        缩放后图片 = 原始图片.resize(
+                            (int(宽 * 0.6), int(高 * 0.6)),
+                            Image.Resampling.LANCZOS,
+                        )
+                        图片对象 = ImageTk.PhotoImage(缩放后图片)
+                        黄金双脆图片标签.configure(image=图片对象, text="")
+                        黄金双脆图片标签.image = 图片对象
 
                 def 异环钓鱼窗口创建():
                     文本容器 = ttk.LabelFrame(异环钓鱼子容器)
@@ -3865,7 +3879,7 @@ def 函数主程序():
                               字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=5, 位置2=0)
                 创建按钮2grid(选项卡任务列表容器1_2, "黄金双脆",
                               lambda: 执行器.提交任务(显示任务窗口, "黄金双脆子容器", 异步=False),
-                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=5, 位置2=1)
+                              字体配置=("微软雅黑", 小功能按钮字体), width=小功能按钮长度, height=1, 位置=4, 位置2=1)
 
 
 
